@@ -3,7 +3,7 @@ Section: admin
 Priority: optional
 Maintainer: Vladimir Berezhnoy <non7top@gmail.com>
 Standards-Version: 4.6.2
-Homepage: https://github.com/apt-cosign/apt-cosign
+Homepage: https://github.com/non7top/apt-cosign
 
 Package: apt-cosign
 Architecture: amd64 arm64

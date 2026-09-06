@@ -6,14 +6,19 @@
 # >=1.25.8, newer than the golang-go package on several of the Ubuntu
 # releases in our support matrix (jammy/22.04, noble/24.04), so the binary
 # is built once with the pinned toolchain in Dockerfile/docker-compose.yml
-# and packaged directly. debian/control and debian/changelog are still real
-# metadata (parsed by this script), not just documentation.
+# and packaged directly. debian/control is still real metadata (its
+# Description is copied below), not just documentation.
 set -eu
 
 cd "$(dirname "$0")/.."
 
 PKG_NAME=apt-cosign
-VERSION=$(sed -n '1s/^[^ ]* (\([^)]*\)).*/\1/p' debian/changelog)
+# .release-please-manifest.json is the single source of truth for the
+# version -- release-please updates it, and nothing else does, so nothing
+# else should be read for VERSION here (debian/changelog's own version line
+# was a second, independently-tracked copy that drifted out of sync the
+# first time a release actually shipped).
+VERSION=$(sed -n 's/.*"\.": *"\([^"]*\)".*/\1/p' .release-please-manifest.json)
 ARCH=$(go env GOARCH)
 
 for bin in "bin/sigstore+https" "bin/apt-cosign-sign"; do
