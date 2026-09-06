@@ -72,7 +72,15 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.workflow_run.head_sha }}
 
-      - name: Build and package (resolute/26.04 primary target)
+      # Separate steps, not just `make package` alone: since #17 decoupled
+      # `package`'s prerequisite on `build` (each was independently
+      # re-triggering the whole chain when invoked as separate CI steps --
+      # see that PR), a caller now has to run `make build` itself first.
+      # build.yml already does; this job just hadn't been updated to match.
+      - name: Build
+        run: make build
+
+      - name: Package (resolute/26.04 primary target)
         run: make package
 
       # Native on the runner, not inside the dev container: apt-cosign-sign
@@ -103,22 +111,16 @@ jobs:
       # byte-different .deb (dpkg-deb embeds a build timestamp), which
       # would make the release asset and the hosted repo's package two
       # different artifacts for the same nominal version.
-      - name: Stage the flat apt repo from the already-built, already-signed .deb
-        run: make apt-repo-stage
-
-      - name: Sign the apt repo's InRelease/Packages (the .deb is already signed)
-        run: ./debian/sign-apt-repo.sh
-
-      # apt-repo is published as a single, force-pushed commit (like a
-      # gh-pages branch) rather than accumulating history: it's regenerated
-      # in full on every release, and nothing about its own git history is
-      # meaningful (the real history lives on master).
-      - name: Publish to the apt-repo branch
-        working-directory: apt-repo
-        run: |
-          git init -q
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -q -m "apt-repo: ${{ needs.check-release-tag.outputs.tag }}"
-          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:refs/heads/apt-repo
+      #
+      # This is the same mechanism non7top/nginx-modules uses (with its
+      # own per-codename Packages/InRelease, since its builds for
+      # different Ubuntu codenames aren't byte-identical) -- extracted
+      # here into a reusable action once a second real consumer needed it.
+      - name: Stage, sign, and publish the apt repo
+        uses: ./.github/actions/publish-apt-repo
+        with:
+          sign-bin: ./bin/apt-cosign-sign
+          origin: apt-cosign
+          description: "apt-cosign demo repository (sigstore-verified, no GPG signature -- see README)"
+          commit-message: "apt-repo: ${{ needs.check-release-tag.outputs.tag }}"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
