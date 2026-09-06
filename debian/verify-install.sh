@@ -26,4 +26,5 @@ case "$out" in
   *) fail "unexpected capabilities output: $out" ;;
 esac
 
+# shellcheck disable=SC1091 # /etc/os-release only exists on the target system, not at lint time
 echo "OK: $(. /etc/os-release && echo "$PRETTY_NAME")"
