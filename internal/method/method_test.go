@@ -241,6 +241,64 @@ func TestAcquire_BadURIScheme_Fails(t *testing.T) {
 	}
 }
 
+func TestAcquire_MultipleSourcesDispatchByURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, ".sigstore"):
+			_, _ = w.Write([]byte(`{"fake":"bundle"}`))
+		default:
+			_, _ = w.Write([]byte("content for " + r.URL.Path))
+		}
+	}))
+	defer srv.Close()
+
+	input := configMessage(
+		"Acquire::sigstore::Sources::repo-a::Match="+srv.URL+"/repo-a/",
+		"Acquire::sigstore::Sources::repo-a::Enforce::Repo::Owner=org-a",
+		"Acquire::sigstore::Sources::repo-a::Enforce::Repo::Name=repo-a",
+		"Acquire::sigstore::Sources::repo-b::Match="+srv.URL+"/repo-b/",
+		"Acquire::sigstore::Sources::repo-b::Enforce::Repo::Owner=org-b",
+		"Acquire::sigstore::Sources::repo-b::Enforce::Repo::Name=repo-b",
+	) +
+		acquireMessage("sigstore+"+srv.URL+"/repo-a/InRelease", filepath.Join(t.TempDir(), "a")) +
+		acquireMessage("sigstore+"+srv.URL+"/repo-b/InRelease", filepath.Join(t.TempDir(), "b"))
+
+	var out bytes.Buffer
+	m := New(strings.NewReader(input), &out, nil)
+	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+		return &fakeTrustedMaterial{}, nil
+	}
+	var sawSANs []string
+	m.verifyBundle = func(_ root.TrustedMaterial, _ []byte, _ io.Reader, pol verify.IdentityPolicy) (*verify.Result, error) {
+		sawSANs = append(sawSANs, pol.SANRegexp)
+		return &verify.Result{LogIndex: 1}, nil
+	}
+	if err := m.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	msgs := allMessages(t, out.String())
+	var done int
+	for _, msg := range msgs {
+		if msg.Code == codeURIDone {
+			done++
+		}
+	}
+	if done != 2 {
+		t.Fatalf("expected 2 successful acquisitions, got %d (messages: %+v)", done, msgs)
+	}
+
+	if len(sawSANs) != 2 {
+		t.Fatalf("expected 2 verifyBundle calls, got %d", len(sawSANs))
+	}
+	if !strings.Contains(sawSANs[0], "org-a/repo-a") {
+		t.Fatalf("first request's policy = %q, want it scoped to org-a/repo-a", sawSANs[0])
+	}
+	if !strings.Contains(sawSANs[1], "org-b/repo-b") {
+		t.Fatalf("second request's policy = %q, want it scoped to org-b/repo-b", sawSANs[1])
+	}
+}
+
 func TestHandleConfiguration_InvalidPolicy_RecordsError(t *testing.T) {
 	var out bytes.Buffer
 	m := New(strings.NewReader(""), &out, nil)

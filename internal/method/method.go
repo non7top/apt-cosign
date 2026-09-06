@@ -188,6 +188,11 @@ func (m *Method) acquire(ctx context.Context, uri, filename string) error {
 		return fmt.Errorf("parsing target URL %q: %w", targetURL, err)
 	}
 
+	enforce, policySource, err := m.policy.PolicyFor(targetURL)
+	if err != nil {
+		return err
+	}
+
 	if m.trustedMaterial == nil {
 		m.logMessage(uri, "loading sigstore trusted root")
 		tm, err := m.loadTrustedRoot(m.policy.CacheDir)
@@ -203,19 +208,23 @@ func (m *Method) acquire(ctx context.Context, uri, filename string) error {
 		return fmt.Errorf("downloading target: %w", err)
 	}
 
-	bundles, source, err := m.candidateBundles(ctx, parsedTarget, targetURL, sha256Hex)
+	bundles, source, err := m.candidateBundles(ctx, parsedTarget, targetURL, sha256Hex, enforce)
 	if err != nil {
 		_ = os.Remove(filename)
 		return fmt.Errorf("fetching signature bundle: %w", err)
 	}
 
-	m.logMessage(uri, fmt.Sprintf("verifying sigstore bundle from %s", source))
+	m.logMessage(uri, fmt.Sprintf("verifying sigstore bundle from %s (policy: %s)", source, policySource))
 	artifactData, err := os.ReadFile(filename)
 	if err != nil {
 		return fmt.Errorf("reopening downloaded file for verification: %w", err)
 	}
 
-	identityPolicy := m.identityPolicy()
+	identityPolicy, err := identityPolicyFor(enforce, parsedTarget)
+	if err != nil {
+		_ = os.Remove(filename)
+		return fmt.Errorf("building identity policy: %w", err)
+	}
 
 	var result *verify.Result
 	var verr error
@@ -244,7 +253,7 @@ func (m *Method) acquire(ctx context.Context, uri, filename string) error {
 // Debian detached-signature convention, e.g. Release/Release.gpg, just with
 // a Sigstore bundle instead), or -- if that's missing and the target is
 // GitHub-hosted -- bundles from GitHub's native Artifact Attestations API.
-func (m *Method) candidateBundles(ctx context.Context, target *url.URL, targetURL, sha256Hex string) (bundles [][]byte, source string, err error) {
+func (m *Method) candidateBundles(ctx context.Context, target *url.URL, targetURL, sha256Hex string, enforce *config.Enforce) (bundles [][]byte, source string, err error) {
 	sidecarURL := fetch.BundleURL(targetURL, m.policy.BundleExtension)
 	data, err := m.dl.FetchBytes(ctx, sidecarURL, maxBundleBytes)
 	if err == nil {
@@ -259,7 +268,7 @@ func (m *Method) candidateBundles(ctx context.Context, target *url.URL, targetUR
 		return nil, "", fmt.Errorf("no sidecar bundle at %s: %w", sidecarURL, err)
 	}
 
-	owner, repo, ok := m.ownerRepoForAttestations(target)
+	owner, repo, ok := ownerRepoForAttestations(enforce, target)
 	if !ok {
 		return nil, "", fmt.Errorf("no sidecar bundle at %s (%v), and could not determine a GitHub owner/repo for the attestations API fallback", sidecarURL, err)
 	}
@@ -271,21 +280,24 @@ func (m *Method) candidateBundles(ctx context.Context, target *url.URL, targetUR
 	return bundles, fmt.Sprintf("GitHub attestations API (%s/%s)", owner, repo), nil
 }
 
-func (m *Method) ownerRepoForAttestations(u *url.URL) (owner, repo string, ok bool) {
-	if r := m.policy.Enforce.Repo; r != nil {
+func ownerRepoForAttestations(enforce *config.Enforce, u *url.URL) (owner, repo string, ok bool) {
+	if r := enforce.Repo; r != nil && r.Owner != "" && r.Name != "" {
 		return r.Owner, r.Name, true
 	}
 	return fetch.GitHubOwnerRepo(u)
 }
 
-func (m *Method) identityPolicy() verify.IdentityPolicy {
-	e := m.policy.Enforce
-	pol := verify.IdentityPolicy{MinLogIndex: e.MinRekorLogIndex}
-	if e.Repo != nil {
-		pol.Issuer, pol.SAN, pol.SANRegexp = e.Repo.Identity()
-		return pol
+func identityPolicyFor(enforce *config.Enforce, target *url.URL) (verify.IdentityPolicy, error) {
+	pol := verify.IdentityPolicy{MinLogIndex: enforce.MinRekorLogIndex}
+	if enforce.Repo != nil {
+		issuer, san, sanRegexp, err := enforce.Repo.Identity(target)
+		if err != nil {
+			return verify.IdentityPolicy{}, err
+		}
+		pol.Issuer, pol.SAN, pol.SANRegexp = issuer, san, sanRegexp
+		return pol, nil
 	}
-	pol.Issuer = e.Issuer
-	pol.SAN = e.Identity
-	return pol
+	pol.Issuer = enforce.Issuer
+	pol.SAN = enforce.Identity
+	return pol, nil
 }

@@ -5,13 +5,24 @@
 // Choose ONE enforcement style below.
 
 // Style 1: GitHub Actions workflow identity. Verifies the certificate was
-// issued for a run of Owner/Name's Pipeline workflow, on any ref, via
-// GitHub Actions' fixed OIDC issuer.
+// issued for a run of Owner/Name's Pipeline workflow, via GitHub Actions'
+// fixed OIDC issuer. Owner/Name (together) and Pipeline/Ref are each
+// optional -- see the commented-out fields below.
 Acquire::sigstore::Enforce::Repo {
     Owner "your-org";
     Name "your-repo";
     Pipeline "release.yml";
     // Ref "refs/heads/main"; // optional: pin to one ref for an exact (non-regexp) match
+
+    // Owner/Name may both be left unset instead: they're then derived from
+    // each request's own URL (github.com/raw.githubusercontent.com), so
+    // this same block covers every GitHub-hosted source using the same
+    // Pipeline convention, with no per-repo config.
+
+    // Pipeline may also be left unset, wildcarding the workflow filename --
+    // Owner+Name alone (any workflow in that repo) is a complete policy on
+    // its own, on top of the Rekor-log and signature checks every bundle
+    // already gets regardless.
 };
 
 // Style 2: a raw OIDC issuer + certificate identity, matched exactly.
@@ -20,7 +31,22 @@ Acquire::sigstore::Enforce::Repo {
 //     certificate-identity "you@example.com";
 // };
 
-// Optional, either style:
+// To trust more than one identity at once (e.g. two different repos signed
+// by two different workflows), use named, URL-prefix-scoped blocks instead
+// of the flat Enforce above. Match is checked as a prefix against the
+// mapped https:// target (not the sigstore+https:// URI); the first
+// matching Sources::<name> wins, in name order, falling back to Enforce
+// above (if set) when nothing matches.
+// Acquire::sigstore::Sources::apt-cosign {
+//     Match "https://raw.githubusercontent.com/non7top/apt-cosign/";
+//     Enforce::Repo { Owner "non7top"; Name "apt-cosign"; };
+// };
+// Acquire::sigstore::Sources::nginx-modules {
+//     Match "https://raw.githubusercontent.com/non7top/nginx-modules/";
+//     Enforce::Repo { Pipeline "build.yml"; };
+// };
+
+// Optional, any style:
 // Acquire::sigstore::Enforce::Fields {
 //     rekorLogIndex "100000"; // reject anything logged before this index
 // };
