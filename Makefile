@@ -53,8 +53,12 @@ matrix: package
 	docker compose -f docker-compose.matrix.yml run --rm resolute
 
 # Stages a flat apt repo (InRelease/Packages/the .deb) for hosting on
-# raw.githubusercontent.com -- see debian/build-apt-repo.sh.
-apt-repo-stage: package
+# raw.githubusercontent.com -- see debian/build-apt-repo.sh. Deliberately
+# does NOT depend on `package`: release.yml builds+signs the .deb once and
+# reuses that exact file (and its .sigstore) here rather than rebuilding a
+# second, byte-different .deb just to stage the repo. Run `make package`
+# yourself first if the .deb isn't already built.
+apt-repo-stage:
 	docker compose run --rm repo ./debian/build-apt-repo.sh
 
 # Signs everything apt-repo-stage produced. Needs a real OIDC identity and
