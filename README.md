@@ -17,11 +17,13 @@ must have all of:
   against the live, TUF-fetched public-good Sigstore trusted root — so
   it's publicly, tamper-evidently logged, not just cryptographically
   self-consistent.
-- A **certificate identity matching your configured policy**: either an
-  exact `certificate-oidc-issuer` + `certificate-identity` pair, or (the
-  `Repo` shorthand) a GitHub Actions-issued certificate whose owner/repo
-  (pinned, or derived from the request's own URL) and, optionally, workflow
-  filename/ref all match.
+- A **certificate identity matching your policy**: either an exact
+  `certificate-oidc-issuer` + `certificate-identity` pair, or (the `Repo`
+  shorthand) a GitHub Actions-issued certificate whose owner/repo (pinned,
+  or derived from the request's own URL) and, optionally, workflow
+  filename/ref all match. For a GitHub-hosted source, this is also the
+  *zero-configuration default* — nothing pinned at all still derives
+  owner/repo from the URL and checks it.
 - Optionally, a **minimum Rekor log index** (`rekorLogIndex`), rejecting
   anything logged before a given point (e.g. to invalidate everything
   signed before a known key/log incident).
@@ -67,8 +69,18 @@ once, for the first install.
 
 ## Configure a client
 
-The method refuses every acquisition until a policy is set. Copy the example
-and edit it:
+For a GitHub-hosted source (`github.com`/`raw.githubusercontent.com`), no
+configuration is needed at all: with no policy configured, the method
+derives the owner/repo from the request's own URL and trusts that repo's
+own GitHub Actions CI (any workflow, any ref). This isn't a weaker
+fallback — `sources.list` already had to explicitly name that URL for the
+request to happen at all, so it's already your own trust anchor, the same
+reasoning `Owner`/`Name` derivation (below) relies on. A non-GitHub-hosted
+source has no URL to derive an identity from, so it still fails closed.
+
+To narrow that default (pin a specific workflow, a specific ref, a
+non-GitHub identity, or trust more than one repo with different rules),
+copy the example policy and edit it:
 
 ```sh
 sudo cp /etc/apt/apt.conf.d/99sigstore-policy.example /etc/apt/apt.conf.d/99sigstore-policy

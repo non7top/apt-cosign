@@ -139,8 +139,16 @@ type Policy struct {
 
 // PolicyFor returns the Enforce policy that applies to targetURL (the
 // mapped https:// target, i.e. after fetch.MapURI): the first (by Name) of
-// Sources whose Match is a prefix of targetURL, or the default Enforce
-// block if none match and one is configured.
+// Sources whose Match is a prefix of targetURL, the default Enforce block
+// if none match and one is configured, or -- if neither is configured at
+// all -- a policy derived entirely from targetURL itself for a
+// github.com/raw.githubusercontent.com target (any workflow, any ref, for
+// the owner/repo the URL names). That last case isn't a weaker fallback:
+// sources.list already had to explicitly name this URL for the request to
+// exist at all, so it's already the operator's own trust anchor, same
+// reasoning as leaving Owner/Name unset in a configured Repo block. A
+// non-GitHub-hosted target still has nothing to derive an identity from,
+// so it still fails closed.
 func (p *Policy) PolicyFor(targetURL string) (enf *Enforce, source string, err error) {
 	for i := range p.Sources {
 		if strings.HasPrefix(targetURL, p.Sources[i].Match) {
@@ -150,7 +158,10 @@ func (p *Policy) PolicyFor(targetURL string) (enf *Enforce, source string, err e
 	if p.HasDefault {
 		return &p.Enforce, "default", nil
 	}
-	return nil, "", fmt.Errorf("no sigstore policy matches %s (no %s<name>::Match prefix, and no default %s::* block configured)", targetURL, keySourcesPrefix, keyDefaultEnforceBase)
+	if u, uerr := url.Parse(targetURL); uerr == nil && fetch.IsGitHubHost(u) {
+		return &Enforce{Repo: &RepoIdentity{}}, "derived-from-url", nil
+	}
+	return nil, "", fmt.Errorf("no sigstore policy matches %s (no %s<name>::Match prefix, no default %s::* block configured, and it's not a GitHub-hosted URL an identity could be derived from)", targetURL, keySourcesPrefix, keyDefaultEnforceBase)
 }
 
 // ParseConfigItem splits an APT "Config-Item" header value ("Key=Value")
@@ -192,10 +203,9 @@ func FromItems(items map[string]string) (*Policy, error) {
 	}
 	p.Sources = sources
 
-	if !hasDefault && len(sources) == 0 {
-		return nil, fmt.Errorf("config: must configure either %s::* (a default policy) or at least one %s<name> block", keyDefaultEnforceBase, keySourcesPrefix)
-	}
-
+	// No error when neither is configured: PolicyFor still fails closed
+	// per-request for anything that isn't a GitHub-hosted URL it can derive
+	// an identity from.
 	return p, nil
 }
 

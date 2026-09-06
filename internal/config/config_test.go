@@ -152,8 +152,26 @@ func TestFromItems_RepoBlockIncomplete(t *testing.T) {
 }
 
 func TestFromItems_MissingEnforcement(t *testing.T) {
-	if _, err := FromItems(map[string]string{}); err == nil {
-		t.Fatal("expected error when no enforcement policy is configured")
+	// A totally empty configuration is now valid at parse time -- it's
+	// PolicyFor, not FromItems, that decides per-request whether a
+	// GitHub-hosted URL can fall back to a derived identity.
+	p, err := FromItems(map[string]string{})
+	if err != nil {
+		t.Fatalf("FromItems: %v", err)
+	}
+	if p.HasDefault || len(p.Sources) != 0 {
+		t.Fatalf("expected an empty policy, got %+v", p)
+	}
+
+	if _, _, err := p.PolicyFor("https://example.com/dists/stable/InRelease"); err == nil {
+		t.Fatal("expected error: nothing configured and not a GitHub-hosted URL")
+	}
+	enf, source, err := p.PolicyFor("https://raw.githubusercontent.com/octo-org/widgets/refs/heads/main/InRelease")
+	if err != nil {
+		t.Fatalf("PolicyFor (derived fallback): %v", err)
+	}
+	if source != "derived-from-url" || enf.Repo == nil {
+		t.Fatalf("expected a derived Repo policy, got source=%q enf=%+v", source, enf)
 	}
 }
 
@@ -240,8 +258,20 @@ func TestFromItems_Sources(t *testing.T) {
 		t.Fatalf("unexpected enforce for nginx-modules: source=%q enf=%+v", source, enf)
 	}
 
-	if _, _, err := p.PolicyFor("https://raw.githubusercontent.com/someone-else/other-repo/refs/heads/main/InRelease"); err == nil {
-		t.Fatal("expected error: no source matches and no default is configured")
+	// No source matches, no default is configured, but it's a GitHub-hosted
+	// URL: falls back to deriving owner/repo from it rather than failing.
+	enf, source, err = p.PolicyFor("https://raw.githubusercontent.com/someone-else/other-repo/refs/heads/main/InRelease")
+	if err != nil {
+		t.Fatalf("PolicyFor (derived fallback): %v", err)
+	}
+	if source != "derived-from-url" || enf.Repo == nil || enf.Repo.Owner != "" {
+		t.Fatalf("expected an unpinned Repo policy for the derived fallback, got source=%q enf=%+v", source, enf)
+	}
+
+	// A non-GitHub-hosted URL has nothing to derive an identity from, so it
+	// still fails closed.
+	if _, _, err := p.PolicyFor("https://example.com/dists/stable/InRelease"); err == nil {
+		t.Fatal("expected error: no source matches, no default, and not a GitHub-hosted URL")
 	}
 }
 

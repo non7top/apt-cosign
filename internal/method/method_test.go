@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"apt-cosign/internal/aptmsg"
 	"apt-cosign/internal/verify"
@@ -299,13 +301,95 @@ func TestAcquire_MultipleSourcesDispatchByURL(t *testing.T) {
 	}
 }
 
-func TestHandleConfiguration_InvalidPolicy_RecordsError(t *testing.T) {
+func TestAcquire_ZeroConfig_GitHubHost_Succeeds(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, ".sigstore"):
+			_, _ = w.Write([]byte(`{"fake":"bundle"}`))
+		default:
+			_, _ = w.Write([]byte("content"))
+		}
+	}))
+	defer srv.Close()
+
+	// Redirects the real hostname raw.githubusercontent.com to the local
+	// test server at the TCP level, so fetch.IsGitHubHost (which only
+	// looks at the hostname) sees the genuine article while the request is
+	// actually served locally.
+	serverAddr := strings.TrimPrefix(srv.URL, "http://")
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if strings.HasPrefix(addr, "raw.githubusercontent.com:") {
+					addr = serverAddr
+				}
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
+			},
+		},
+	}
+
+	destFile := filepath.Join(t.TempDir(), "InRelease")
+	uri := "sigstore+http://raw.githubusercontent.com/octo-org/widgets/InRelease"
+
+	// A bare, empty 601 Configuration -- no Enforce/Sources at all.
+	input := configMessage() + acquireMessage(uri, destFile)
+
+	var out bytes.Buffer
+	m := New(strings.NewReader(input), &out, nil)
+	m.dl.Client = client
+	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+		return &fakeTrustedMaterial{}, nil
+	}
+	var sawIssuer, sawSAN string
+	m.verifyBundle = func(_ root.TrustedMaterial, _ []byte, _ io.Reader, pol verify.IdentityPolicy) (*verify.Result, error) {
+		sawIssuer, sawSAN = pol.Issuer, pol.SANRegexp
+		return &verify.Result{LogIndex: 1}, nil
+	}
+	if err := m.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	msgs := allMessages(t, out.String())
+	last := msgs[len(msgs)-1]
+	if last.Code != codeURIDone {
+		t.Fatalf("code = %d, want %d (%s): %+v", last.Code, codeURIDone, last.Description, msgs)
+	}
+	if sawIssuer != "https://token.actions.githubusercontent.com" {
+		t.Fatalf("issuer = %q, want the GitHub Actions issuer (derived Repo policy)", sawIssuer)
+	}
+	if !strings.Contains(sawSAN, "octo-org/widgets") {
+		t.Fatalf("SAN regexp = %q, want it scoped to octo-org/widgets (derived from the URL)", sawSAN)
+	}
+}
+
+func TestHandleConfiguration_EmptyConfiguration_NoError(t *testing.T) {
+	// An empty configuration is valid at parse time now: PolicyFor decides
+	// per-request whether a GitHub-hosted URL can fall back to a derived
+	// identity (see TestAcquire_ZeroConfig_GitHubHost_Succeeds below).
 	var out bytes.Buffer
 	m := New(strings.NewReader(""), &out, nil)
 	m.handleConfiguration(&aptmsg.Message{
 		Code: codeConfiguration, Description: "Configuration",
 	})
+	if m.policyErr != nil {
+		t.Fatalf("expected no policyErr for an empty configuration, got %v", m.policyErr)
+	}
+}
+
+func TestHandleConfiguration_InvalidPolicy_RecordsError(t *testing.T) {
+	var out bytes.Buffer
+	m := New(strings.NewReader(""), &out, nil)
+	m.handleConfiguration(&aptmsg.Message{
+		Code:        codeConfiguration,
+		Description: "Configuration",
+		Headers: []aptmsg.Header{
+			aptmsg.H("Config-Item", "Acquire::sigstore::Enforce::Fields::rekorLogIndex=not-a-number"),
+			aptmsg.H("Config-Item", "Acquire::sigstore::Enforce::Fields::certificate-oidc-issuer=https://accounts.google.com"),
+			aptmsg.H("Config-Item", "Acquire::sigstore::Enforce::Fields::certificate-identity=someone@example.com"),
+		},
+	})
 	if m.policyErr == nil {
-		t.Fatal("expected policyErr to be set for an empty configuration")
+		t.Fatal("expected policyErr to be set for a malformed rekorLogIndex")
 	}
 }
