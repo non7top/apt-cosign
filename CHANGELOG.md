@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/non7top/apt-cosign/compare/v0.5.0...v0.6.0) (2026-09-06)
+
+
+### Features
+
+* **ci:** extract apt-repo publish/sign into reusable composite actions ([637564c](https://github.com/non7top/apt-cosign/commit/637564cade48dd116775fc1a98e68b669f76d9cc))
+* **ci:** extract apt-repo publish/sign into reusable composite actions ([380196e](https://github.com/non7top/apt-cosign/commit/380196e2f09ea83e933112e0ae21888301e0ec2f))
+
 ## [0.5.0](https://github.com/non7top/apt-cosign/compare/v0.4.0...v0.5.0) (2026-09-06)
 
 
