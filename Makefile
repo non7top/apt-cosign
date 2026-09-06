@@ -37,7 +37,15 @@ run: build
 		printf "601 Configuration\nConfig-Item: Acquire::sigstore::CacheDir=/tmp/apt-cosign-cache\nConfig-Item: Acquire::sigstore::Enforce::Repo::Owner=debian\nConfig-Item: Acquire::sigstore::Enforce::Repo::Name=debian\nConfig-Item: Acquire::sigstore::Enforce::Repo::Pipeline=release.yml\n\n600 URI Acquire\nURI: sigstore+https://deb.debian.org/debian/dists/stable/InRelease\nFilename: /tmp/TestInRelease\n\n" \
 		| ./bin/$(METHOD_NAME)'
 
-package: build
+# Deliberately does NOT depend on `build`: build.yml (and local use) runs
+# `make build` then `make package` as separate commands, and since these
+# are phony targets, a `build` prerequisite here would make *this* command
+# rebuild both binaries all over again -- Go compiled three times over in
+# one CI job once you add `matrix`'s own former dependency on `package` on
+# top (same class of bug as the release.yml one fixed in #12). build.sh
+# already errors clearly ("run 'make build' first") if the binaries are
+# missing, so run `make build` yourself first.
+package:
 	docker compose run --rm dev ./debian/build.sh
 
 # Run each matrix service with `run --rm` rather than `up
@@ -46,7 +54,12 @@ package: build
 # verification jobs -- we hit this for real once (noble finishing first
 # killed jammy mid-install before it could report success). `run --rm` gives
 # each service its own real, individually-checked exit code.
-matrix: package
+#
+# Also deliberately does NOT depend on `package`, for the same reason
+# `package` no longer depends on `build` -- install-and-verify.sh already
+# errors clearly if dist/*.deb is missing, so run `make package` yourself
+# first.
+matrix:
 	docker compose -f docker-compose.matrix.yml build
 	docker compose -f docker-compose.matrix.yml run --rm jammy
 	docker compose -f docker-compose.matrix.yml run --rm noble
