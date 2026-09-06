@@ -32,11 +32,18 @@ Pick one enforcement style inside — a GitHub Actions workflow identity
 `Enforce::Fields { certificate-oidc-issuer; certificate-identity; }` pair
 matched exactly.
 
-Then point a source at the `sigstore+https` scheme instead of `https`:
+Then point a source at the `sigstore+https` scheme instead of `https`, with
+`[trusted=yes]` — apt's own GPG check has nothing to check here (there's no
+`Release.gpg`, no inline-signed `InRelease`; the sigstore bundle *is* the
+trust mechanism), so tell apt to skip it and rely on the method instead:
 
 ```
-deb sigstore+https://raw.githubusercontent.com/OWNER/REPO/refs/heads/main/dists/stable ./
+deb [trusted=yes] sigstore+https://raw.githubusercontent.com/non7top/apt-cosign/refs/heads/apt-repo/ ./
 ```
+
+That's this project's own live demo repo (see below) — every apt-cosign
+release republishes it, so you can add this source today and
+`apt-get install apt-cosign` through it.
 
 ## Sign a repo
 
@@ -45,7 +52,7 @@ deb sigstore+https://raw.githubusercontent.com/OWNER/REPO/refs/heads/main/dists/
 same convention as the classic `Release`/`Release.gpg` pairing:
 
 ```sh
-apt-cosign-sign dists/stable/InRelease
+apt-cosign-sign InRelease
 ```
 
 Identity is resolved in order: `-id-token` if given, GitHub Actions' ambient
@@ -54,19 +61,32 @@ or an interactive OAuth login (`-device` for a headless machine).
 
 ## Hosting a repo on raw.githubusercontent.com
 
-1. Create a (public) GitHub repo holding your apt tree, e.g.
-   `dists/stable/{InRelease,Packages,...}`.
-2. Build the tree with your usual tooling (`reprepro`, `aptly`, ...), commit,
-   and push.
-3. In a GitHub Actions workflow with `permissions: id-token: write`, run
-   `apt-cosign-sign dists/stable/InRelease` and commit the resulting
-   `InRelease.sigstore` alongside it.
+apt-cosign hosts itself this way — `debian/build-apt-repo.sh` and
+`debian/sign-apt-repo.sh` (wired up as `make apt-repo-stage` /
+`make apt-repo-sign`, and as the `publish-apt-repo` job in
+[`release.yml`](.github/workflows/release.yml)) are the real, working
+version of these steps, not just documentation:
+
+1. Stage a flat repo (no `dists/` hierarchy — just `deb URL/ ./`): a
+   `Packages` index from `dpkg-scanpackages`, an `InRelease` with a `SHA256:`
+   hash section over `Packages` and no PGP signature, and the `.deb`(s)
+   themselves, all in one directory.
+2. In a GitHub Actions workflow with `permissions: id-token: write`, run
+   `apt-cosign-sign` on **all three** of `InRelease`, `Packages`, and each
+   `.deb` — apt-cosign-method verifies every file it's asked to fetch
+   independently, not just the top-level index, so each needs its own
+   `.sigstore` bundle.
+3. Publish that directory as the sole commit of a dedicated branch (a
+   `gh-pages`-style force-push, regenerated whole on every release — see
+   the `publish-apt-repo` job) so `raw.githubusercontent.com` serves it.
 4. Point clients at
-   `sigstore+https://raw.githubusercontent.com/OWNER/REPO/refs/heads/main/dists/stable/InRelease`.
+   `sigstore+https://raw.githubusercontent.com/OWNER/REPO/refs/heads/BRANCH/InRelease`
+   with `[trusted=yes]`.
 5. Set the client's `Enforce::Repo` block to that repo's `Owner`/`Name`/
-   `Pipeline`, so only your CI's identity is accepted. If a target has no
-   sidecar bundle, the method also falls back to GitHub's native Artifact
-   Attestations API for GitHub-hosted URLs.
+   `Pipeline` (the workflow file that actually runs the signing, e.g.
+   `release.yml`), so only your CI's identity is accepted. If a target has
+   no sidecar bundle, the method also falls back to GitHub's native
+   Artifact Attestations API for GitHub-hosted URLs.
 
 ## Building it yourself
 

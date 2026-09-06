@@ -12,6 +12,18 @@ services:
       - GOCACHE=/go-cache
       - GOFLAGS=-mod=mod
 
+  # Debian-based (not the golang dev image) purely for dpkg-scanpackages,
+  # used to stage the flat apt repo published for raw.githubusercontent.com
+  # hosting -- see debian/build-apt-repo.sh.
+  repo:
+    build:
+      context: .
+      dockerfile: Dockerfile.repo
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
+    working_dir: /work
+    volumes:
+      - .:/work
+
 volumes:
   gomod:
   gocache:

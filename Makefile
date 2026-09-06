@@ -4,7 +4,7 @@ export DOCKER_GID := $(shell id -g)
 METHOD_NAME := sigstore+https
 SIGN_NAME := apt-cosign-sign
 
-.PHONY: build test lint tidy shell run stop destroy package matrix
+.PHONY: build test lint tidy shell run stop destroy package matrix apt-repo-stage apt-repo-sign
 
 # -buildvcs=false: under act (and other nested-docker CI runners) the build
 # runs as a different uid than the one that owns the bind-mounted .git
@@ -51,6 +51,16 @@ matrix: package
 	docker compose -f docker-compose.matrix.yml run --rm jammy
 	docker compose -f docker-compose.matrix.yml run --rm noble
 	docker compose -f docker-compose.matrix.yml run --rm resolute
+
+# Stages a flat apt repo (InRelease/Packages/the .deb) for hosting on
+# raw.githubusercontent.com -- see debian/build-apt-repo.sh.
+apt-repo-stage: package
+	docker compose run --rm repo ./debian/build-apt-repo.sh
+
+# Signs everything apt-repo-stage produced. Needs a real OIDC identity and
+# runs natively, not in a container -- see debian/sign-apt-repo.sh.
+apt-repo-sign: apt-repo-stage
+	./debian/sign-apt-repo.sh
 
 stop:
 	docker compose down
