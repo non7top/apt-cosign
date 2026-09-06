@@ -1,0 +1,14 @@
+#!/bin/sh
+# Create the TUF trusted-root cache directory apt-cosign-method uses
+# (Acquire::sigstore::CacheDir, default /var/lib/apt-cosign). apt methods run
+# as the unprivileged _apt user, which cannot create top-level directories
+# under /var/lib itself, so this has to happen at install time.
+set -e
+
+case "$1" in
+  configure)
+    install -d -m 0700 -o _apt -g root /var/lib/apt-cosign
+    ;;
+esac
+
+exit 0

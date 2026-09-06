@@ -1,0 +1,21 @@
+services:
+  jammy:
+    build:
+      context: .
+      dockerfile: Dockerfile.matrix
+      args:
+        BASE_IMAGE: ubuntu:22.04
+
+  noble:
+    build:
+      context: .
+      dockerfile: Dockerfile.matrix
+      args:
+        BASE_IMAGE: ubuntu:24.04
+
+  resolute:
+    build:
+      context: .
+      dockerfile: Dockerfile.matrix
+      args:
+        BASE_IMAGE: ubuntu:26.04

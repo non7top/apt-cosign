@@ -1,0 +1,35 @@
+name: Build and Package
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: make build
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
+
+      - name: Package (resolute/26.04 primary target)
+        run: make package
+
+      - name: Install matrix (jammy/22.04, noble/24.04, resolute/26.04)
+        run: make matrix
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: apt-cosign-deb
+          path: dist/*.deb
+          if-no-files-found: error

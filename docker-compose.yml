@@ -1,0 +1,17 @@
+services:
+  dev:
+    build: .
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
+    working_dir: /app
+    volumes:
+      - .:/app
+      - gomod:/go
+      - gocache:/go-cache
+    environment:
+      - GOPATH=/go
+      - GOCACHE=/go-cache
+      - GOFLAGS=-mod=mod
+
+volumes:
+  gomod:
+  gocache:

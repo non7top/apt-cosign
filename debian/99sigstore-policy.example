@@ -1,0 +1,29 @@
+// Example apt-cosign policy. Copy to /etc/apt/apt.conf.d/99sigstore-policy
+// and edit -- apt-cosign-method refuses every acquisition (fails closed)
+// until a policy is configured.
+//
+// Choose ONE enforcement style below.
+
+// Style 1: GitHub Actions workflow identity. Verifies the certificate was
+// issued for a run of Owner/Name's Pipeline workflow, on any ref, via
+// GitHub Actions' fixed OIDC issuer.
+Acquire::sigstore::Enforce::Repo {
+    Owner "your-org";
+    Name "your-repo";
+    Pipeline "release.yml";
+    // Ref "refs/heads/main"; // optional: pin to one ref for an exact (non-regexp) match
+};
+
+// Style 2: a raw OIDC issuer + certificate identity, matched exactly.
+// Acquire::sigstore::Enforce::Fields {
+//     certificate-oidc-issuer "https://accounts.google.com";
+//     certificate-identity "you@example.com";
+// };
+
+// Optional, either style:
+// Acquire::sigstore::Enforce::Fields {
+//     rekorLogIndex "100000"; // reject anything logged before this index
+// };
+// Acquire::sigstore::BundleExtension ".sigstore"; // sidecar file suffix
+// Acquire::sigstore::GitHubToken "..."; // for the GitHub Attestations API fallback
+// Acquire::sigstore::CacheDir "/var/lib/apt-cosign"; // TUF trusted-root cache

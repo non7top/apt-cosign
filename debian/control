@@ -1,0 +1,20 @@
+Source: apt-cosign
+Section: admin
+Priority: optional
+Maintainer: Vladimir Berezhnoy <non7top@gmail.com>
+Standards-Version: 4.6.2
+Homepage: https://github.com/apt-cosign/apt-cosign
+
+Package: apt-cosign
+Architecture: amd64 arm64
+Depends: apt (>= 1.1)
+Description: Sigstore-verifying apt transport method
+ apt-cosign installs /usr/lib/apt/methods/sigstore+https, a native apt
+ acquire method that fetches repository metadata and packages, verifies an
+ accompanying Sigstore bundle (Rekor transparency log entry and a
+ Fulcio-issued OIDC certificate identity) against a configured policy, and
+ only then hands the file back to apt.
+ .
+ apt-cosign-sign, also included, is the repo-maintainer counterpart: it
+ keylessly signs a file with Sigstore and writes the resulting bundle next
+ to it as FILE.sigstore, the sidecar apt-cosign-method fetches and verifies.

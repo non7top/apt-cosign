@@ -1,0 +1,8 @@
+apt-cosign (0.1.0) resolute; urgency=medium
+
+  * Initial release: sigstore+https apt acquire method and the
+    apt-cosign-sign signing tool.
+  * Primary target is resolute (26.04); noble (24.04) and jammy (22.04)
+    are covered by the install matrix in docker-compose.matrix.yml.
+
+ -- Vladimir Berezhnoy <non7top@gmail.com>  Sun, 06 Sep 2026 10:15:36 +0000
