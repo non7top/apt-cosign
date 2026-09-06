@@ -6,12 +6,17 @@ SIGN_NAME := apt-cosign-sign
 
 .PHONY: build test lint tidy shell run stop destroy package matrix
 
+# -buildvcs=false: under act (and other nested-docker CI runners) the build
+# runs as a different uid than the one that owns the bind-mounted .git
+# directory, which trips git's "dubious ownership" safety check and makes
+# Go's VCS-stamping step fail; we don't use the embedded VCS info, so just
+# skip it rather than depend on uids lining up.
 build:
-	docker compose run --rm dev go build -o bin/$(METHOD_NAME) ./cmd/apt-cosign-method
-	docker compose run --rm dev go build -o bin/$(SIGN_NAME) ./cmd/apt-cosign-sign
+	docker compose run --rm dev go build -buildvcs=false -o bin/$(METHOD_NAME) ./cmd/apt-cosign-method
+	docker compose run --rm dev go build -buildvcs=false -o bin/$(SIGN_NAME) ./cmd/apt-cosign-sign
 
 test:
-	docker compose run --rm dev go test ./...
+	docker compose run --rm dev go test -buildvcs=false ./...
 
 lint:
 	docker compose run --rm dev go vet ./...
@@ -35,9 +40,17 @@ run: build
 package: build
 	docker compose run --rm dev ./debian/build.sh
 
+# Run each matrix service with `run --rm` rather than `up
+# --abort-on-container-exit`: the latter tears down every other service the
+# instant the first one exits, which is racy for independent one-shot
+# verification jobs -- we hit this for real once (noble finishing first
+# killed jammy mid-install before it could report success). `run --rm` gives
+# each service its own real, individually-checked exit code.
 matrix: package
 	docker compose -f docker-compose.matrix.yml build
-	docker compose -f docker-compose.matrix.yml up --abort-on-container-exit
+	docker compose -f docker-compose.matrix.yml run --rm jammy
+	docker compose -f docker-compose.matrix.yml run --rm noble
+	docker compose -f docker-compose.matrix.yml run --rm resolute
 
 stop:
 	docker compose down

@@ -2,12 +2,8 @@ ARG BASE_IMAGE=ubuntu:26.04
 FROM ${BASE_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive
 
-COPY dist/*.deb /tmp/apt-cosign.deb
-RUN apt-get update \
-    && apt-get install -y /tmp/apt-cosign.deb \
-    && rm -rf /var/lib/apt/lists/* /tmp/apt-cosign.deb
-
+COPY debian/install-and-verify.sh /usr/local/bin/install-and-verify.sh
 COPY debian/verify-install.sh /usr/local/bin/verify-install.sh
-RUN chmod 0755 /usr/local/bin/verify-install.sh
+RUN chmod 0755 /usr/local/bin/install-and-verify.sh /usr/local/bin/verify-install.sh
 
-CMD ["/usr/local/bin/verify-install.sh"]
+CMD ["/usr/local/bin/install-and-verify.sh"]

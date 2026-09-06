@@ -5,6 +5,8 @@ services:
       dockerfile: Dockerfile.matrix
       args:
         BASE_IMAGE: ubuntu:22.04
+    volumes:
+      - ./dist:/dist:ro
 
   noble:
     build:
@@ -12,6 +14,8 @@ services:
       dockerfile: Dockerfile.matrix
       args:
         BASE_IMAGE: ubuntu:24.04
+    volumes:
+      - ./dist:/dist:ro
 
   resolute:
     build:
@@ -19,3 +23,5 @@ services:
       dockerfile: Dockerfile.matrix
       args:
         BASE_IMAGE: ubuntu:26.04
+    volumes:
+      - ./dist:/dist:ro
