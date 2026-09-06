@@ -1,0 +1,47 @@
+name: Fetch and verify apt-cosign-sign
+description: >
+  For consumers with no Go toolchain of their own: downloads a pinned
+  apt-cosign release .deb, verifies it with cosign against apt-cosign's own
+  release.yml identity (the same bootstrap step apt-cosign's README
+  documents for installing apt-cosign itself the first time), and extracts
+  apt-cosign-sign from it. Outputs the path to the now-executable binary.
+
+inputs:
+  version:
+    description: apt-cosign release to fetch, without the "v" prefix (e.g. "0.5.0").
+    required: true
+  github-token:
+    description: Token used for `gh release download` against non7top/apt-cosign.
+    required: true
+
+outputs:
+  bin-path:
+    description: Path to the extracted, executable apt-cosign-sign binary.
+    value: ${{ steps.fetch.outputs.bin-path }}
+
+runs:
+  using: composite
+  steps:
+    - uses: sigstore/cosign-installer@v3
+
+    - name: Fetch and verify apt-cosign-sign
+      id: fetch
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        APT_COSIGN_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        workdir=$(mktemp -d)
+        cd "$workdir"
+        gh release download "v${APT_COSIGN_VERSION}" \
+          --repo non7top/apt-cosign \
+          --pattern 'apt-cosign_*_amd64.deb*'
+        cosign verify-blob \
+          --bundle "apt-cosign_${APT_COSIGN_VERSION}_amd64.deb.sigstore" \
+          --certificate-identity-regexp '^https://github\.com/non7top/apt-cosign/\.github/workflows/release\.yml@.+$' \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+          "apt-cosign_${APT_COSIGN_VERSION}_amd64.deb"
+        dpkg-deb -x "apt-cosign_${APT_COSIGN_VERSION}_amd64.deb" extracted
+        chmod +x extracted/usr/bin/apt-cosign-sign
+        echo "bin-path=$workdir/extracted/usr/bin/apt-cosign-sign" >> "$GITHUB_OUTPUT"

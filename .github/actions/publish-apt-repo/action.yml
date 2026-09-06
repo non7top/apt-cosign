@@ -1,0 +1,103 @@
+name: Publish a sigstore-signed apt repo
+description: >
+  Stages a flat-format apt repo (no dists/ hierarchy) from the .deb(s) in
+  dist-dir, signs every InRelease/Packages/.deb with apt-cosign-sign, and
+  force-publishes it to a dedicated branch for raw.githubusercontent.com
+  hosting. Extracted from non7top/apt-cosign's own release.yml once a second
+  project (non7top/nginx-modules) needed the same mechanism -- see that
+  project's build-nginx-vts.yml for the per-codename usage this also covers.
+
+inputs:
+  dist-dir:
+    description: Directory containing the built .deb(s) to stage.
+    required: false
+    default: dist
+  sign-bin:
+    description: >
+      Path to an executable apt-cosign-sign binary (built from source, or
+      fetched with the fetch-apt-cosign-sign action). Must already have a
+      real OIDC identity available (e.g. this job has id-token: write).
+    required: true
+  sign-args:
+    description: Extra arguments forwarded to apt-cosign-sign (e.g. -id-token).
+    required: false
+    default: ""
+  codename-pattern:
+    description: >
+      A sed -E script applied to each .deb's filename to extract an OS
+      codename (e.g. 's/_amd64\.deb$//; s/.*_//' for
+      "pkg_1.0_jammy_amd64.deb" -> "jammy"). When set, each codename gets
+      its own subdirectory under repo-dir, each an independent repo --
+      builds for different codenames aren't byte-identical and can't share
+      one Packages index. When empty (the default), every .deb is staged
+      flat into one repo at repo-dir itself.
+    required: false
+    default: ""
+  origin:
+    description: The repo's Origin/Label (InRelease fields).
+    required: true
+  description:
+    description: >
+      The repo's InRelease Description field. "%CODENAME%" is substituted
+      with the actual codename when codename-pattern is set.
+    required: true
+  repo-dir:
+    description: Directory to stage the repo into.
+    required: false
+    default: apt-repo
+  branch:
+    description: Branch to force-push the staged repo to.
+    required: false
+    default: apt-repo
+  commit-message:
+    description: Commit message for the force-pushed branch.
+    required: true
+  github-token:
+    description: Token with contents:write on this repo, used to push branch.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install dpkg-dev (dpkg-scanpackages)
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends dpkg-dev
+
+    - name: Stage the flat (or per-codename) repo
+      shell: bash
+      env:
+        DIST_DIR: ${{ inputs.dist-dir }}
+        REPO_DIR: ${{ inputs.repo-dir }}
+        CODENAME_PATTERN: ${{ inputs.codename-pattern }}
+        ORIGIN: ${{ inputs.origin }}
+        DESCRIPTION: ${{ inputs.description }}
+      run: ${{ github.action_path }}/stage.sh
+
+    - name: Sign every InRelease/Packages/.deb (keyless, GitHub Actions OIDC)
+      shell: bash
+      env:
+        REPO_DIR: ${{ inputs.repo-dir }}
+        SIGN_BIN: ${{ inputs.sign-bin }}
+        SIGN_ARGS: ${{ inputs.sign-args }}
+      run: ${{ github.action_path }}/sign.sh
+
+    # Published as a single, force-pushed commit (like a gh-pages branch)
+    # rather than accumulating history: it's regenerated whole every time,
+    # and nothing about its own git history is meaningful (the real history
+    # lives on the caller's default branch).
+    - name: Publish to the ${{ inputs.branch }} branch
+      shell: bash
+      working-directory: ${{ inputs.repo-dir }}
+      env:
+        BRANCH: ${{ inputs.branch }}
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        git init -q
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add -A
+        git commit -q -m "$COMMIT_MESSAGE"
+        git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:refs/heads/$BRANCH"
