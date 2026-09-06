@@ -1,0 +1,18 @@
+// Installed active (not .example): trusts apt-cosign's own demo repo out of
+// the box, so `apt-get update`/`install`/`upgrade` against
+// sigstore+https://raw.githubusercontent.com/non7top/apt-cosign/refs/heads/apt-repo/
+// work with zero configuration. Named (Sources::apt-cosign), not the flat
+// Enforce block, specifically so a user's own /etc/apt/apt.conf.d file
+// adding Sources::<other-name> blocks for other repos coexists with this
+// rather than overwriting it -- apt.conf.d merges files, but a scalar leaf
+// like the flat Enforce block would just be replaced by whichever file
+// loads last.
+//
+// A fork of this project should change Owner/Name here to point at itself.
+Acquire::sigstore::Sources::apt-cosign {
+    Match "https://raw.githubusercontent.com/non7top/apt-cosign/";
+    Enforce::Repo {
+        Owner "non7top";
+        Name "apt-cosign";
+    };
+};

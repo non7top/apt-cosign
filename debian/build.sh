@@ -37,6 +37,7 @@ install -d "$STAGE/etc/apt/apt.conf.d"
 install -m 0755 "bin/sigstore+https" "$STAGE/usr/lib/apt/methods/sigstore+https"
 install -m 0755 "bin/apt-cosign-sign" "$STAGE/usr/bin/apt-cosign-sign"
 install -m 0644 "debian/99sigstore-policy.example" "$STAGE/etc/apt/apt.conf.d/99sigstore-policy.example"
+install -m 0644 "debian/50apt-cosign-selfupdate" "$STAGE/etc/apt/apt.conf.d/50apt-cosign-selfupdate"
 install -m 0755 "debian/postinst" "$STAGE/DEBIAN/postinst"
 install -m 0755 "debian/postrm" "$STAGE/DEBIAN/postrm"
 

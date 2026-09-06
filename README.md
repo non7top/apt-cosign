@@ -6,6 +6,31 @@ identity — before handing a fetched file back to apt. Includes
 `apt-cosign-sign`, the repo-maintainer counterpart that produces those
 bundles.
 
+## What gets verified
+
+Every file apt-cosign-method fetches (not just the top-level index —
+`InRelease`, `Packages`, and each `.deb` are each checked independently)
+must have all of:
+
+- A **valid signature** over its exact bytes.
+- A **valid Rekor transparency-log entry** for that signature, checked
+  against the live, TUF-fetched public-good Sigstore trusted root — so
+  it's publicly, tamper-evidently logged, not just cryptographically
+  self-consistent.
+- A **certificate identity matching your configured policy**: either an
+  exact `certificate-oidc-issuer` + `certificate-identity` pair, or (the
+  `Repo` shorthand) a GitHub Actions-issued certificate whose owner/repo
+  (pinned, or derived from the request's own URL) and, optionally, workflow
+  filename/ref all match.
+- Optionally, a **minimum Rekor log index** (`rekorLogIndex`), rejecting
+  anything logged before a given point (e.g. to invalidate everything
+  signed before a known key/log incident).
+
+What this does *not* do: vouch for what a package actually contains or
+does, beyond confirming who published it and that the publication is a
+matter of public record. It's a publisher-identity and transparency check,
+not a malware scanner.
+
 ## Install
 
 Bootstrap problem: verifying a `sigstore+https://` source needs
@@ -35,14 +60,16 @@ sudo dpkg -i apt-cosign_*.deb
 ```
 
 This installs `/usr/lib/apt/methods/sigstore+https`, `/usr/bin/apt-cosign-sign`,
-and an example policy at `/etc/apt/apt.conf.d/99sigstore-policy.example`. From
-here on, apt-cosign-method itself can verify future updates through a
-`sigstore+https` source (see below) — this manual cosign step is only needed
-once, for the first install.
+an example policy at `/etc/apt/apt.conf.d/99sigstore-policy.example`, and an
+*active* one at `/etc/apt/apt.conf.d/50apt-cosign-selfupdate` that trusts
+apt-cosign's own demo repo (below) out of the box — self-updates work with
+zero configuration, this manual cosign step is only needed once, for the
+first install.
 
 ## Configure a client
 
-The method refuses every acquisition until a policy is set. Copy the example
+The method refuses every acquisition it has no policy for (fail closed).
+Everything except apt-cosign's own repo needs one added — copy the example
 and edit it:
 
 ```sh
@@ -52,7 +79,47 @@ sudo cp /etc/apt/apt.conf.d/99sigstore-policy.example /etc/apt/apt.conf.d/99sigs
 Pick one enforcement style inside — a GitHub Actions workflow identity
 (`Enforce::Repo { Owner; Name; Pipeline; }`), or a raw
 `Enforce::Fields { certificate-oidc-issuer; certificate-identity; }` pair
-matched exactly.
+matched exactly. In a `Repo` block:
+
+- `Owner`/`Name` can be omitted (both, together) to derive them from each
+  request's own URL instead of pinning them — one policy then covers every
+  GitHub-hosted source using the same `Pipeline` convention, with no
+  per-repo config. This doesn't weaken anything: the URL comes from your
+  own `sources.list`, which is already the trust anchor here, and the
+  Fulcio certificate's owner/repo is still checked exactly, just against a
+  value read from the request instead of duplicated in apt.conf.
+- `Pipeline`/`Ref` are independently optional too, wildcarding the workflow
+  filename / git ref when left unset — `Owner`+`Name` alone (any workflow
+  in that repo) is a complete, valid policy on its own, on top of the
+  Rekor-log and signature checks every bundle already gets regardless.
+
+To trust more than one identity at once (e.g. two different repos signed by
+two different workflows), use named, URL-prefix-scoped blocks instead of
+one flat `Enforce`:
+
+```
+Acquire::sigstore::Sources::apt-cosign {
+    Match "https://raw.githubusercontent.com/non7top/apt-cosign/";
+    Enforce::Repo { Owner "non7top"; Name "apt-cosign"; };
+};
+Acquire::sigstore::Sources::nginx-modules {
+    Match "https://raw.githubusercontent.com/non7top/nginx-modules/";
+    Enforce::Repo { Pipeline "build.yml"; };
+};
+```
+
+`Match` is checked as a prefix against the mapped `https://` target (not
+the `sigstore+https://` URI); the first matching `Sources::<name>` wins, in
+name order, falling back to the flat `Enforce` block (if any) when nothing
+matches.
+
+(Not yet possible: putting this policy directly in the source's own
+`.sources`/`sources.list` stanza instead of a separate apt.conf block. Apt's
+method IPC protocol only forwards the `Acquire::*` apt.conf tree to a
+method via `601 Configuration` — custom per-stanza fields aren't part of
+that today. If apt ever starts forwarding them, apt-cosign-method could
+read policy straight from the matching stanza instead; tracked in
+[#9](https://github.com/non7top/apt-cosign/issues/9).)
 
 Then point a source at the `sigstore+https` scheme instead of `https`, with
 `[trusted=yes]` — apt's own GPG check has nothing to check here (there's no
