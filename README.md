@@ -60,16 +60,14 @@ sudo dpkg -i apt-cosign_*.deb
 ```
 
 This installs `/usr/lib/apt/methods/sigstore+https`, `/usr/bin/apt-cosign-sign`,
-an example policy at `/etc/apt/apt.conf.d/99sigstore-policy.example`, and an
-*active* one at `/etc/apt/apt.conf.d/50apt-cosign-selfupdate` that trusts
-apt-cosign's own demo repo (below) out of the box — self-updates work with
-zero configuration, this manual cosign step is only needed once, for the
-first install.
+and an example policy at `/etc/apt/apt.conf.d/99sigstore-policy.example`. From
+here on, apt-cosign-method itself can verify future updates through a
+`sigstore+https` source (see below) — this manual cosign step is only needed
+once, for the first install.
 
 ## Configure a client
 
-The method refuses every acquisition it has no policy for (fail closed).
-Everything except apt-cosign's own repo needs one added — copy the example
+The method refuses every acquisition until a policy is set. Copy the example
 and edit it:
 
 ```sh
