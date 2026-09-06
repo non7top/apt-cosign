@@ -4,19 +4,35 @@
 # -- InRelease, Packages, and the .deb itself -- gets independently
 # verified by apt-cosign-method (it has no special case for "this one is
 # the trust anchor"), so each needs its own apt-cosign-sign bundle. This
-# script only stages the unsigned files; signing is a separate step so
-# staging can run without OIDC/network access.
+# script only stages the unsigned InRelease/Packages; signing those is a
+# separate step so staging can run without OIDC/network access. If dist/
+# already has a signed .deb.sigstore (release.yml signs the .deb once,
+# before staging), it's copied along with the .deb rather than left for
+# sign-apt-repo.sh to sign a second time -- same bytes, no need for a
+# second Rekor entry.
 set -eu
 
 cd "$(dirname "$0")/.."
 
-DEB=$(find dist -maxdepth 1 -name '*.deb' | head -1)
-[ -n "$DEB" ] || { echo "build-apt-repo.sh: no .deb in dist/; run 'make package' first" >&2; exit 1; }
+# Named explicitly by the current version rather than picked via a dist/
+# glob: dist/ isn't cleaned between local builds, so a glob can silently
+# pick a stale .deb left over from a previous version instead of the one
+# that actually matches HEAD. .release-please-manifest.json is the same
+# single source of truth debian/build.sh uses.
+VERSION=$(sed -n 's/.*"\.": *"\([^"]*\)".*/\1/p' .release-please-manifest.json)
+# dpkg --print-architecture, not `go env GOARCH`: this script runs in the
+# `repo` service (dpkg-dev, no Go toolchain), not `dev`. Debian and Go
+# architecture names coincide for amd64/arm64, the only ones this project
+# packages (see debian/control).
+ARCH=$(dpkg --print-architecture)
+DEB="dist/apt-cosign_${VERSION}_${ARCH}.deb"
+[ -f "$DEB" ] || { echo "build-apt-repo.sh: $DEB missing; run 'make package' first" >&2; exit 1; }
 
 REPO_DIR=apt-repo
 rm -rf "$REPO_DIR"
 mkdir -p "$REPO_DIR"
 cp "$DEB" "$REPO_DIR/"
+[ -f "$DEB.sigstore" ] && cp "$DEB.sigstore" "$REPO_DIR/"
 
 cd "$REPO_DIR"
 

@@ -93,27 +93,20 @@ jobs:
             dist/*.deb.sigstore
           generate_release_notes: true
 
-  # Dogfoods the project on itself: publishes a real flat apt repo (see
-  # README's "Hosting a repo on raw.githubusercontent.com") serving this
-  # same release, so `sigstore+https://raw.githubusercontent.com/<this
-  # repo>/refs/heads/apt-repo/...` is a live, working example, not just
-  # documentation.
-  publish-apt-repo:
-    needs: check-release-tag
-    if: needs.check-release-tag.outputs.tag != ''
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.workflow_run.head_sha }}
-
-      - name: Build, package, and stage the flat apt repo
+      # Dogfoods the project on itself: publishes a real flat apt repo (see
+      # README's "Hosting a repo on raw.githubusercontent.com") serving
+      # this same release, so
+      # `sigstore+https://raw.githubusercontent.com/<this repo>/refs/heads/apt-repo/...`
+      # is a live, working example, not just documentation. Reuses the
+      # .deb (and its .sigstore) already built and signed above rather
+      # than rebuilding: a second `make package` here would produce a
+      # byte-different .deb (dpkg-deb embeds a build timestamp), which
+      # would make the release asset and the hosted repo's package two
+      # different artifacts for the same nominal version.
+      - name: Stage the flat apt repo from the already-built, already-signed .deb
         run: make apt-repo-stage
 
-      - name: Sign the apt repo (keyless, GitHub Actions OIDC)
+      - name: Sign the apt repo's InRelease/Packages (the .deb is already signed)
         run: ./debian/sign-apt-repo.sh
 
       # apt-repo is published as a single, force-pushed commit (like a
