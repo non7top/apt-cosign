@@ -8,15 +8,37 @@ bundles.
 
 ## Install
 
-Grab the `.deb` from a [release](../../releases) (or build it yourself: see
-below) and install it:
+Bootstrap problem: verifying a `sigstore+https://` source needs
+apt-cosign-method already installed, so the very first download of
+apt-cosign itself can't go through apt-cosign-method — there's nothing
+installed yet to do the verifying. Grab it from a
+[release](../../releases) instead and verify it directly with the
+[cosign](https://docs.sigstore.dev/cosign/system_config/installation/) CLI
+against the `.sigstore` bundle attached alongside it:
+
+```sh
+gh release download --repo non7top/apt-cosign --pattern '*.deb*'
+
+cosign verify-blob \
+  --bundle apt-cosign_*_amd64.deb.sigstore \
+  --certificate-identity-regexp '^https://github\.com/non7top/apt-cosign/\.github/workflows/release\.yml@.+$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  apt-cosign_*_amd64.deb
+```
+
+(no `gh`? the release page lists the exact `.deb` and `.deb.sigstore`
+filenames to `curl -LO` instead.) Once that prints `Verified OK`, install it
+normally:
 
 ```sh
 sudo dpkg -i apt-cosign_*.deb
 ```
 
 This installs `/usr/lib/apt/methods/sigstore+https`, `/usr/bin/apt-cosign-sign`,
-and an example policy at `/etc/apt/apt.conf.d/99sigstore-policy.example`.
+and an example policy at `/etc/apt/apt.conf.d/99sigstore-policy.example`. From
+here on, apt-cosign-method itself can verify future updates through a
+`sigstore+https` source (see below) — this manual cosign step is only needed
+once, for the first install.
 
 ## Configure a client
 
