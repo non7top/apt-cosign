@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/non7top/apt-cosign/compare/v0.2.0...v0.3.0) (2026-09-06)
+
+
+### Features
+
+* host apt-cosign as a real raw.githubusercontent.com apt repo ([2c7bfce](https://github.com/non7top/apt-cosign/commit/2c7bfce38b2a178da75777431a0615ff1db56ad8))
+* host apt-cosign as a real raw.githubusercontent.com apt repo ([6171a18](https://github.com/non7top/apt-cosign/commit/6171a18473172c7537111fd7a9512246664acbcd))
+
 ## [0.2.0](https://github.com/non7top/apt-cosign/compare/v0.1.0...v0.2.0) (2026-09-06)
 
 
