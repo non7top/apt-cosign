@@ -16,6 +16,18 @@ permissions:
   contents: read
   pull-requests: write
 
+# Without this, a force-push and a retitle arriving close together start two
+# runs that both write this PR's comment/label, and whichever finishes last
+# wins -- even when it's the one holding the older PR title. Flagged by
+# non7top/release-please-forecast's own preflight check after we hit this
+# for real: a stale "Bug Fixes" prediction briefly outran the correct one
+# after a force-push. cancel-in-progress so a newer event (another
+# force-push) wins outright rather than queuing behind a run whose result
+# is already obsolete.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   preview:
     runs-on: ubuntu-latest
