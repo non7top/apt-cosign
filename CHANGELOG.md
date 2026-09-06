@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/non7top/apt-cosign/compare/v0.4.0...v0.5.0) (2026-09-06)
+
+
+### Features
+
+* derive owner/repo for zero-config GitHub-hosted sources ([671528c](https://github.com/non7top/apt-cosign/commit/671528c9a764fef4830faccf1000a288e10901d5))
+* derive owner/repo for zero-config GitHub-hosted sources ([d2a6cc1](https://github.com/non7top/apt-cosign/commit/d2a6cc1cf38844c6d6a4342e40d64ebd517293f4))
+
 ## [0.4.0](https://github.com/non7top/apt-cosign/compare/v0.3.0...v0.4.0) (2026-09-06)
 
 
