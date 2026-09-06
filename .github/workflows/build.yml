@@ -3,7 +3,6 @@ name: Build and Package
 on:
   push:
     branches: [main, master]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -34,25 +33,3 @@ jobs:
           name: apt-cosign-deb
           path: dist/*.deb
           if-no-files-found: error
-
-  # Only the build job's own artifact is ever released -- never a locally
-  # built .deb -- so a release always reflects a package that passed lint,
-  # test, and the jammy/noble/resolute install matrix.
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v5
-        with:
-          name: apt-cosign-deb
-          path: dist
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.deb
-          prerelease: true
-          generate_release_notes: true

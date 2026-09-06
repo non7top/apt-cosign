@@ -1,0 +1,32 @@
+name: release-please-preview
+
+on:
+  pull_request:
+    # edited fires on a title/body/base-branch change with no new commits.
+    # This repo merges via real merge commits (not squash), so the PR title
+    # itself doesn't feed release-please's changelog/version computation --
+    # but retargeting a PR's base branch onto (or off of) master does
+    # change whether it should be previewed at all, and that's also
+    # delivered as `edited`, not `synchronize`. A real rebase/force-push
+    # already re-triggers via synchronize on its own.
+    types: [opened, synchronize, reopened, edited]
+    branches: [master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history and tags: release-please needs to walk back to the
+          # last release tag, and the action builds its own merge commit on
+          # top of this clone.
+          fetch-depth: 0
+
+      - uses: non7top/release-please-forecast@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
