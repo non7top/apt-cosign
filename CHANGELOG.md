@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.0](https://github.com/non7top/apt-cosign/compare/v0.6.0...v0.7.0) (2026-09-07)
+
+
+### Features
+
+* stage and sign a Packages.gz alongside the plain Packages index ([e823892](https://github.com/non7top/apt-cosign/commit/e82389271a35544d102022b360f8556218fb431d))
+* stage and sign a Packages.gz alongside the plain Packages index ([b503c79](https://github.com/non7top/apt-cosign/commit/b503c7967c81cf8fe425bfba8e0ef425af00d5b3)), closes [#21](https://github.com/non7top/apt-cosign/issues/21)
+
+
+### Bug Fixes
+
+* **debian:** stop shipping the example policy where apt silently ignores it ([6dc78d7](https://github.com/non7top/apt-cosign/commit/6dc78d7343d149fa15fcd2d617c0f48fe3c9ab7f))
+* **debian:** stop shipping the example policy where apt silently ignores it ([4f71a66](https://github.com/non7top/apt-cosign/commit/4f71a666da1db374a6f7e370388ca7c0e14b31bb))
+
 ## [0.6.0](https://github.com/non7top/apt-cosign/compare/v0.5.0...v0.6.0) (2026-09-06)
 
 
