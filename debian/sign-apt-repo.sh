@@ -1,8 +1,9 @@
 #!/bin/sh
 # Signs every file in the staged apt-repo/ that apt-cosign-method will
-# independently verify -- InRelease, Packages, and the .deb itself; it has
-# no special case for "this one is the trust anchor", so each needs its own
-# apt-cosign-sign bundle. Run after debian/build-apt-repo.sh.
+# independently verify -- InRelease, Packages, Packages.gz (build-apt-repo.sh's
+# compressed index -- see its own comment on why it exists), and the .deb
+# itself; it has no special case for "this one is the trust anchor", so
+# each needs its own apt-cosign-sign bundle. Run after debian/build-apt-repo.sh.
 #
 # The .deb is skipped here if it already has a .sigstore sidecar --
 # build-apt-repo.sh copies one along from dist/ when release.yml has
@@ -26,7 +27,7 @@ SIGN_BIN=./bin/apt-cosign-sign
 REPO_DIR=apt-repo
 [ -d "$REPO_DIR" ] || { echo "sign-apt-repo.sh: $REPO_DIR missing; run 'make apt-repo-stage' first" >&2; exit 1; }
 
-for f in "$REPO_DIR/InRelease" "$REPO_DIR/Packages" "$REPO_DIR"/*.deb; do
+for f in "$REPO_DIR/InRelease" "$REPO_DIR/Packages" "$REPO_DIR/Packages.gz" "$REPO_DIR"/*.deb; do
   if [ -f "$f.sigstore" ]; then
     echo "already signed, skipping: $f"
     continue

@@ -39,8 +39,19 @@ stage_one() {
     # base URI.
     dpkg-scanpackages . /dev/null > Packages
 
+    # apt tries a fixed list of compressed variants (gz, xz, bz2, lzma,
+    # lz4, zst) before falling back to the plain file - without this, every
+    # apt-get update against this repo pays for six guaranteed-404 round
+    # trips first (confirmed empirically). -k keeps the plain Packages
+    # around too (both are independently listed below, and sign.sh signs
+    # both - apt-cosign-method has no special case for "this one doesn't
+    # need its own bundle").
+    gzip -9 -k -f Packages
+
     packages_sha256=$(sha256sum Packages | cut -d' ' -f1)
     packages_size=$(wc -c < Packages)
+    packages_gz_sha256=$(sha256sum Packages.gz | cut -d' ' -f1)
+    packages_gz_size=$(wc -c < Packages.gz)
     description=$(echo "$DESCRIPTION" | sed "s/%CODENAME%/$codename/g")
 
     cat > InRelease <<EOF
@@ -54,6 +65,7 @@ Description: ${description}
 Date: $(date -u -R)
 SHA256:
  ${packages_sha256} ${packages_size} Packages
+ ${packages_gz_sha256} ${packages_gz_size} Packages.gz
 EOF
   )
   echo "staged $dir/ ($(find "$dir" -maxdepth 1 -name '*.deb' | wc -l) .deb, Packages, InRelease)"
