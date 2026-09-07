@@ -32,11 +32,18 @@ chmod 0755 "$STAGE"
 install -d "$STAGE/DEBIAN"
 install -d "$STAGE/usr/lib/apt/methods"
 install -d "$STAGE/usr/bin"
-install -d "$STAGE/etc/apt/apt.conf.d"
+install -d "$STAGE/usr/share/doc/$PKG_NAME/examples"
 
 install -m 0755 "bin/sigstore+https" "$STAGE/usr/lib/apt/methods/sigstore+https"
 install -m 0755 "bin/apt-cosign-sign" "$STAGE/usr/bin/apt-cosign-sign"
-install -m 0644 "debian/99sigstore-policy.example" "$STAGE/etc/apt/apt.conf.d/99sigstore-policy.example"
+# Not installed straight into /etc/apt/apt.conf.d/: apt's conf.d file-name
+# validator rejects any dot at all in the name, so a shipped "*.example"
+# file there is silently skipped with a "Notice: Ignoring file ... invalid
+# filename extension" on every apt run -- confirmed for real, not just
+# read about. /usr/share/doc/<pkg>/examples/ is the conventional Debian
+# location for exactly this (a template nothing should parse until a user
+# copies it themselves), and apt never scans it at all.
+install -m 0644 "debian/99sigstore-policy.example" "$STAGE/usr/share/doc/$PKG_NAME/examples/99sigstore-policy.example"
 install -m 0755 "debian/postinst" "$STAGE/DEBIAN/postinst"
 install -m 0755 "debian/postrm" "$STAGE/DEBIAN/postrm"
 

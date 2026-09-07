@@ -62,8 +62,12 @@ sudo dpkg -i apt-cosign_*.deb
 ```
 
 This installs `/usr/lib/apt/methods/sigstore+https`, `/usr/bin/apt-cosign-sign`,
-and an example policy at `/etc/apt/apt.conf.d/99sigstore-policy.example`. From
-here on, apt-cosign-method itself can verify future updates through a
+and an example policy at
+`/usr/share/doc/apt-cosign/examples/99sigstore-policy.example` (not shipped
+directly in `/etc/apt/apt.conf.d/`: apt's conf.d file-name validator rejects
+any dot in the name, so a `*.example` file there gets silently skipped with
+a notice on every apt run). From here on, apt-cosign-method itself can
+verify future updates through a
 `sigstore+https` source (see below) — this manual cosign step is only needed
 once, for the first install.
 
@@ -83,7 +87,7 @@ non-GitHub identity, or trust more than one repo with different rules),
 copy the example policy and edit it:
 
 ```sh
-sudo cp /etc/apt/apt.conf.d/99sigstore-policy.example /etc/apt/apt.conf.d/99sigstore-policy
+sudo cp /usr/share/doc/apt-cosign/examples/99sigstore-policy.example /etc/apt/apt.conf.d/99sigstore-policy
 ```
 
 Pick one enforcement style inside — a GitHub Actions workflow identity
