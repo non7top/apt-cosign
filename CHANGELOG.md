@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.8.0](https://github.com/non7top/apt-cosign/compare/v0.7.0...v0.8.0) (2026-09-07)
+
+
+### Features
+
+* add README and CI-built release workflow ([51b60fb](https://github.com/non7top/apt-cosign/commit/51b60fbc97345a08ee609aff1db8cd0585c466e4))
+* adopt release-please for versioning and releases ([9a0d186](https://github.com/non7top/apt-cosign/commit/9a0d1865df77701a056b42ccba13d9b179b9e47e))
+* **ci:** extract apt-repo publish/sign into reusable composite actions ([f36ddb0](https://github.com/non7top/apt-cosign/commit/f36ddb0f928700f48e79544942ed5fcbfa5ec3aa))
+* **ci:** extract apt-repo publish/sign into reusable composite actions ([5a9f9d3](https://github.com/non7top/apt-cosign/commit/5a9f9d39fba0f2ef6f5280e07afd594e4f97e2fb))
+* derive owner/repo for zero-config GitHub-hosted sources ([2d19395](https://github.com/non7top/apt-cosign/commit/2d193956ef96788d25c6f79941dff835ab6ec638))
+* derive owner/repo for zero-config GitHub-hosted sources ([7201447](https://github.com/non7top/apt-cosign/commit/72014476c9feeb8c455b521ef99ff885b5471c7a))
+* host apt-cosign as a real raw.githubusercontent.com apt repo ([0d749ee](https://github.com/non7top/apt-cosign/commit/0d749ee8747b7b62964c29545b733192fdbabbe8))
+* host apt-cosign as a real raw.githubusercontent.com apt repo ([bd1250e](https://github.com/non7top/apt-cosign/commit/bd1250e1bbbcef0c4829d1743f28e7e2bedd45aa))
+* per-source identity policy, derived owner/repo, self-update default ([b07c028](https://github.com/non7top/apt-cosign/commit/b07c028ed55a97dc07257c76d39dae9818493b55))
+* per-source identity policy, derived owner/repo, self-update default ([1becdf3](https://github.com/non7top/apt-cosign/commit/1becdf33767112d7c62d020dfe6787333aa2d4a0))
+* stage and sign a Packages.gz alongside the plain Packages index ([26ea250](https://github.com/non7top/apt-cosign/commit/26ea25099c6788055c2dc0c514de9935d321ac37))
+* stage and sign a Packages.gz alongside the plain Packages index ([54d56ef](https://github.com/non7top/apt-cosign/commit/54d56ef4f0a19c21b238e013991f9beac73ddbc5)), closes [#21](https://github.com/non7top/apt-cosign/issues/21)
+
+
+### Bug Fixes
+
+* **debian:** stop shipping the example policy where apt silently ignores it ([d71fcca](https://github.com/non7top/apt-cosign/commit/d71fcca31b8a103c188a89cdb830bc69520462fd))
+* **debian:** stop shipping the example policy where apt silently ignores it ([9253ffd](https://github.com/non7top/apt-cosign/commit/9253ffdde7038d4661eca15f591328c67afa2c30))
+* drop the shipped self-update default policy ([ebff25b](https://github.com/non7top/apt-cosign/commit/ebff25b5733e0c0ba7024dd49d978387bf7e0563))
+
 ## [0.7.0](https://github.com/non7top/apt-cosign/compare/v0.6.0...v0.7.0) (2026-09-07)
 
 
