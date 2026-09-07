@@ -232,3 +232,16 @@ index probing, the Sigstore round trips themselves) apt's interactive
 progress display can also print the same status lines several times.
 Both are cosmetic quirks of how apt renders unsigned-but-trusted sources,
 not bugs in verification — `apt-get -q update` avoids the second one.
+
+There's no clean fix available today, either: apt's method protocol gives
+a method no way to hand back a trust verdict apt's own status line would
+reflect, and the only real override (`gpgvcommand`) is a single global
+setting, not something scopable to one source. This isn't just unaddressed
+upstream — [a request to let apt verify against a transparency
+log](https://www.mail-archive.com/debian-bugs-dist@lists.debian.org/msg1951430.html)
+was turned down ("I'm strongly opposed to add support for these
+off-the-shelve solutions. We need end-to-end control of all aspects of
+signing"), in favor of apt's own future replacement for GPG signing
+(apt-sign), which is still a static-key design. So this project works
+around apt rather than with it, and the `Ign`/redraw noise is the visible
+cost of that.
