@@ -1,0 +1,11 @@
+Origin: apt-cosign
+Label: apt-cosign
+Suite: stable
+Codename: stable
+Architectures: amd64
+Components: main
+Description: apt-cosign demo repository (sigstore-verified, no GPG signature -- see README)
+Date: Mon, 07 Sep 2026 10:55:19 +0000
+SHA256:
+ 5f5394a60645edc2b0ea53d70553ecf10326465e2c951a027c17f2154a76e3f7 984 Packages
+ e099552a3f14ec78da82bafe2888a0482a89574e6d8bcf61e7d0eaaa9dcb23c7 644 Packages.gz
