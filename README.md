@@ -207,3 +207,41 @@ make matrix    # verifies the .deb installs cleanly on jammy/22.04, noble/24.04,
 CI (`.github/workflows/build.yml`) runs the same steps on every push and
 uploads the built `.deb` as a workflow artifact; tagged releases attach it
 directly.
+
+## Prior art
+
+[apt-verify / apt-sigstore](https://blog.josefsson.org/tag/apt-verify/)
+explored similar ground back in 2023 — using Rekor to bring transparency
+to apt package verification. Its base mode checks that a signature was
+logged without checking who signed it; an add-on plugin pins a static
+public key per distribution for a stronger check. Both integrate by
+globally replacing apt's `gpgv` command, so the same verification applies
+to every repo on the machine rather than just the ones that opt in. This
+project verifies short-lived, workflow-scoped certificate identities
+instead of a stored key, and ships as its own acquire method
+(`sigstore+https://`) so it only ever runs for sources that ask for it.
+
+## Known limitations
+
+There's no `Release.gpg` or inline-signed `InRelease` for apt to check
+itself, so sources need `[trusted=yes]` — and apt labels that combination
+`Ign` in `apt-get update` output. That's apt's own way of saying "I didn't
+run gpgv on this," not a sign of failure; the method still verifies every
+file independently before apt ever sees it. On a slower fetch (compressed
+index probing, the Sigstore round trips themselves) apt's interactive
+progress display can also print the same status lines several times.
+Both are cosmetic quirks of how apt renders unsigned-but-trusted sources,
+not bugs in verification — `apt-get -q update` avoids the second one.
+
+There's no clean fix available today, either: apt's method protocol gives
+a method no way to hand back a trust verdict apt's own status line would
+reflect, and the only real override (`gpgvcommand`) is a single global
+setting, not something scopable to one source. This isn't just unaddressed
+upstream — [a request to let apt verify against a transparency
+log](https://www.mail-archive.com/debian-bugs-dist@lists.debian.org/msg1951430.html)
+was turned down ("I'm strongly opposed to add support for these
+off-the-shelve solutions. We need end-to-end control of all aspects of
+signing"), in favor of apt's own future replacement for GPG signing
+(apt-sign), which is still a static-key design. So this project works
+around apt rather than with it, and the `Ign`/redraw noise is the visible
+cost of that.
