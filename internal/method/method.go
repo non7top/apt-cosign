@@ -32,6 +32,7 @@ import (
 const (
 	codeCapabilities  = 100
 	codeLog           = 101
+	codeURIStart      = 200
 	codeURIDone       = 201
 	codeURIFailure    = 400
 	codeURIAcquire    = 600
@@ -200,6 +201,17 @@ func (m *Method) acquire(ctx context.Context, uri, filename string) error {
 			return fmt.Errorf("loading sigstore trusted root: %w", err)
 		}
 		m.trustedMaterial = tm
+	}
+
+	// apt only prints its human-readable "Get:N ..." line for a URI in
+	// response to a "200 URI Start" message (apt-pkg/acquire-worker.cc's
+	// URI_START handler is what calls pkgAcquireStatus::Fetch()) -- jumping
+	// straight to 201 URI Done, as this method used to, left every fetch
+	// invisible in that output even though it succeeded: no Get:/Ign: line,
+	// and its size left out of apt's own "Fetched X" total. Confirmed by
+	// reading apt's real source, not just inferred from the symptom.
+	if err := m.out.WriteMessage(codeURIStart, "URI Start", aptmsg.H("URI", uri)); err != nil {
+		return err
 	}
 
 	m.logMessage(uri, "downloading "+targetURL)
