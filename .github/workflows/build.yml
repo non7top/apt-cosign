@@ -1,8 +1,14 @@
 name: Build and Package
 
+# Deliberately no `push: branches: [master]` trigger: master's branch
+# protection requires a PR (force-pushes disallowed, admins enforced too),
+# so every commit that lands on master was already built/tested here via
+# `pull_request` first, on the exact same tree a merge commit carries
+# forward. Nothing downstream consumes this workflow's uploaded artifact
+# either (release.yml builds+packages+signs its own .deb independently) --
+# a master-push run would just be rebuilding something already verified,
+# for no consumer.
 on:
-  push:
-    branches: [main, master]
   pull_request:
   workflow_dispatch:
 
