@@ -232,6 +232,13 @@ index probing, the Sigstore round trips themselves) apt's interactive
 progress display can also print the same status lines several times.
 Both are cosmetic quirks of how apt renders unsigned-but-trusted sources,
 not bugs in verification — `apt-get -q update` avoids the second one.
+The same distrust shows up in `apt list`/`apt-cache policy` too: apt just
+discards `InRelease`'s Origin/Label/Suite/Codename/Version fields for a
+`[trusted=yes]` source rather than displaying what's actually there, so
+`apt list` shows the package as `apt-cosign/unknown` instead of
+`apt-cosign/stable`. Confirmed this isn't sigstore-specific either — a
+plain, unsigned `[trusted=yes]` HTTP source with no custom method at all
+gets the exact same treatment.
 
 There's no clean fix available today, either: apt's method protocol gives
 a method no way to hand back a trust verdict apt's own status line would
