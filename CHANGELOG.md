@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/non7top/apt-cosign/compare/v0.8.0...v0.8.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **method:** send 200 URI Start so apt's Get: line and Fetched-size accounting work ([11393a3](https://github.com/non7top/apt-cosign/commit/11393a3f9323b88c3ff7eec97e9720d5824d54e1))
+* **method:** send 200 URI Start so apt's Get: line and Fetched-size accounting work ([674d4d0](https://github.com/non7top/apt-cosign/commit/674d4d018d332a17b7e52a72bac054d7e2aa5b80))
+
 ## [0.8.0](https://github.com/non7top/apt-cosign/compare/v0.7.0...v0.8.0) (2026-09-07)
 
 
