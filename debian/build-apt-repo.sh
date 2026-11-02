@@ -47,15 +47,22 @@ dpkg-scanpackages . /dev/null > Packages
 # zst) before falling back to the plain file - without this, every
 # apt-get update against this repo pays for six guaranteed-404 round
 # trips first (confirmed empirically). -k keeps the plain Packages
-# around too (both are independently listed below, and sign-apt-repo.sh
-# signs both - apt-cosign-method has no special case for "this one
+# around too (all are independently listed below, and sign-apt-repo.sh
+# signs each - apt-cosign-method has no special case for "this one
 # doesn't need its own bundle").
+#
+# xz is published as well as gz: a 404 on a variant is normally just
+# skipped, but on some nodes a missing Packages.xz fails apt-get update
+# outright (seen on a 22.04 node and again during its upgrade to 24.04).
 gzip -9 -k -f Packages
+xz -9 -k -f Packages
 
 packages_sha256=$(sha256sum Packages | cut -d' ' -f1)
 packages_size=$(wc -c < Packages)
 packages_gz_sha256=$(sha256sum Packages.gz | cut -d' ' -f1)
 packages_gz_size=$(wc -c < Packages.gz)
+packages_xz_sha256=$(sha256sum Packages.xz | cut -d' ' -f1)
+packages_xz_size=$(wc -c < Packages.xz)
 
 cat > InRelease <<EOF
 Origin: apt-cosign
@@ -69,6 +76,7 @@ Date: $(date -u -R)
 SHA256:
  ${packages_sha256} ${packages_size} Packages
  ${packages_gz_sha256} ${packages_gz_size} Packages.gz
+ ${packages_xz_sha256} ${packages_xz_size} Packages.xz
 EOF
 
 echo "staged $REPO_DIR/ ($(basename "$DEB"), Packages, InRelease)"
