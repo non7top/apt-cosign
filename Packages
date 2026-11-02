@@ -1,0 +1,23 @@
+Package: apt-cosign
+Version: 0.8.2
+Architecture: amd64
+Maintainer: Vladimir Berezhnoy <non7top@gmail.com>
+Depends: apt (>= 1.1)
+Filename: ./apt-cosign_0.8.2_amd64.deb
+Size: 26126944
+MD5sum: 84456b879923efe79d153de4dcf4645b
+SHA1: 4d998493461863a90b3d54dc456537a9234cbf8f
+SHA256: 37673145ec0f6ffedd8ccfdb73a2b97db378543331aa4af171db81fe9cb5ed29
+Section: admin
+Priority: optional
+Description: Sigstore-verifying apt transport method
+ apt-cosign installs /usr/lib/apt/methods/sigstore+https, a native apt
+ acquire method that fetches repository metadata and packages, verifies an
+ accompanying Sigstore bundle (Rekor transparency log entry and a
+ Fulcio-issued OIDC certificate identity) against a configured policy, and
+ only then hands the file back to apt.
+ .
+ apt-cosign-sign, also included, is the repo-maintainer counterpart: it
+ keylessly signs a file with Sigstore and writes the resulting bundle next
+ to it as FILE.sigstore, the sidecar apt-cosign-method fetches and verifies.
+
