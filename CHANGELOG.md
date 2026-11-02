@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.2](https://github.com/non7top/apt-cosign/compare/v0.8.1...v0.8.2) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** bump the go group across 1 directory with 3 updates ([32e9cf4](https://github.com/non7top/apt-cosign/commit/32e9cf4eb6e7dd15bf5574f904808e60a026a50c))
+* **deps:** bump the go group across 1 directory with 3 updates ([385b84e](https://github.com/non7top/apt-cosign/commit/385b84edda96512f6986b57464cd5dd243dc1cdf))
+
 ## [0.8.1](https://github.com/non7top/apt-cosign/compare/v0.8.0...v0.8.1) (2026-11-02)
 
 
