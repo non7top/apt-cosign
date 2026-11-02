@@ -28,7 +28,7 @@ jobs:
     outputs:
       tag: ${{ steps.find_tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # workflow_run doesn't check out the commit that triggered it by
           # default -- it checks out the default branch's current tip,
@@ -68,7 +68,7 @@ jobs:
       # the repo.
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.workflow_run.head_sha }}
 
@@ -93,7 +93,7 @@ jobs:
         run: ./bin/apt-cosign-sign dist/*.deb
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.check-release-tag.outputs.tag }}
           files: |
