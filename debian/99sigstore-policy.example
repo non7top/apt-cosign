@@ -53,3 +53,5 @@ Acquire::sigstore::Enforce::Repo {
 // Acquire::sigstore::BundleExtension ".sigstore"; // sidecar file suffix
 // Acquire::sigstore::GitHubToken "..."; // for the GitHub Attestations API fallback
 // Acquire::sigstore::CacheDir "/var/lib/apt-cosign"; // TUF trusted-root cache
+// Acquire::sigstore::Debug "true"; // enable diagnostic debug logging
+// Acquire::sigstore::DebugLog "/var/lib/apt-cosign/debug.log"; // or "stderr"

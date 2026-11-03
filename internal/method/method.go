@@ -18,7 +18,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"syscall"
 
 	"apt-cosign/internal/aptmsg"
 	"apt-cosign/internal/config"
@@ -38,24 +41,78 @@ const (
 	codeConfiguration = 601
 )
 
-// DebugLogPath matches the spec's Task 1 requirement to log configuration
-// and acquisition activity here for runtime inspection.
-const DebugLogPath = "/tmp/apt-sigstore-debug.log"
+// DefaultDebugLogPath is the default path used when debug logging is enabled.
+const DefaultDebugLogPath = "/var/lib/apt-cosign/debug.log"
+
+// DebugLogPath is kept for backward compatibility.
+const DebugLogPath = DefaultDebugLogPath
 
 // maxBundleBytes bounds how large a single Sigstore bundle (sidecar file or
 // GitHub attestation) we'll read into memory; real bundles are a few KB to
 // a few hundred KB even with a full cert chain and inclusion proof.
 const maxBundleBytes = 1 << 20
 
-// OpenDebugLog opens (or creates) the debug log file. Logging is a
-// diagnostic aid, not a correctness requirement, so a failure to open it
-// falls back to discarding log output rather than failing the method.
-func OpenDebugLog() *log.Logger {
-	f, err := os.OpenFile(DebugLogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+func openSafeLogFile(path string) (*os.File, error) {
+	if !filepath.IsAbs(path) {
+		return nil, fmt.Errorf("debug log path must be absolute: %q", path)
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("creating debug log directory: %w", err)
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("opening debug log %q: %w", path, err)
+	}
+
+	fi, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("stating debug log: %w", err)
+	}
+	if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
+		uid := uint32(os.Getuid())
+		if stat.Uid != 0 && stat.Uid != uid {
+			_ = f.Close()
+			return nil, fmt.Errorf("debug log %q owned by unexpected uid %d (current uid %d)", path, stat.Uid, uid)
+		}
+	}
+
+	return f, nil
+}
+
+func createLogger(dest, defaultPath string) *log.Logger {
+	dest = strings.TrimSpace(dest)
+	if dest == "stderr" || dest == "-" {
+		return log.New(os.Stderr, "apt-cosign: ", log.LstdFlags|log.Lmicroseconds)
+	}
+	path := dest
+	if path == "1" || strings.EqualFold(path, "true") || strings.EqualFold(path, "yes") || strings.EqualFold(path, "on") {
+		if defaultPath != "" {
+			path = defaultPath
+		} else {
+			path = DefaultDebugLogPath
+		}
+	}
+	f, err := openSafeLogFile(path)
 	if err != nil {
 		return log.New(io.Discard, "", 0)
 	}
 	return log.New(f, "", log.LstdFlags|log.Lmicroseconds)
+}
+
+// OpenDebugLog opens the debug logger. Logging is disabled by default to
+// avoid unconditional writes to world-visible directories; it can be enabled
+// via the APT_SIGSTORE_DEBUG environment variable (set to "1", "true",
+// "stderr", or a file path) or via Acquire::sigstore::Debug in apt config.
+func OpenDebugLog() *log.Logger {
+	env := os.Getenv("APT_SIGSTORE_DEBUG")
+	if env == "" {
+		return log.New(io.Discard, "", 0)
+	}
+	return createLogger(env, DefaultDebugLogPath)
 }
 
 // Method runs the apt acquire-method protocol loop over the given streams.
@@ -152,6 +209,16 @@ func (m *Method) handleConfiguration(msg *aptmsg.Message) {
 		return
 	}
 	m.policy, m.policyErr = policy, nil
+
+	if policy.Debug {
+		dest := policy.DebugLog
+		defaultPath := filepath.Join(policy.CacheDir, "debug.log")
+		if dest == "" {
+			dest = defaultPath
+		}
+		m.logger = createLogger(dest, defaultPath)
+		m.logger.Printf("debug logging enabled (dest: %s)", dest)
+	}
 
 	if policy.RekorServer != "" {
 		m.logger.Printf("note: Acquire::sigstore::RekorServer=%q is configured but only the public-good Sigstore instance (live TUF trusted root) is currently supported; ignoring", policy.RekorServer)
