@@ -10,7 +10,6 @@
 package method
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -234,29 +233,40 @@ func (m *Method) acquire(ctx context.Context, uri, filename string) error {
 	}
 
 	m.logMessage(uri, fmt.Sprintf("verifying sigstore bundle from %s (policy: %s)", source, policySource))
-	artifactData, err := os.ReadFile(filename)
+	artifactFile, err := os.Open(filename)
 	if err != nil {
 		return fmt.Errorf("reopening downloaded file for verification: %w", err)
 	}
+	defer artifactFile.Close()
 
 	identityPolicy, err := identityPolicyFor(enforce, parsedTarget)
 	if err != nil {
+		_ = artifactFile.Close()
 		_ = os.Remove(filename)
 		return fmt.Errorf("building identity policy: %w", err)
 	}
 
 	var result *verify.Result
 	var verr error
-	for _, b := range bundles {
-		result, verr = m.verifyBundle(m.trustedMaterial, b, bytes.NewReader(artifactData), identityPolicy)
+	for i, b := range bundles {
+		if i > 0 {
+			if _, err := artifactFile.Seek(0, io.SeekStart); err != nil {
+				_ = artifactFile.Close()
+				_ = os.Remove(filename)
+				return fmt.Errorf("rewinding downloaded file for verification: %w", err)
+			}
+		}
+		result, verr = m.verifyBundle(m.trustedMaterial, b, artifactFile, identityPolicy)
 		if verr == nil {
 			break
 		}
 	}
 	if verr != nil {
+		_ = artifactFile.Close()
 		_ = os.Remove(filename)
 		return fmt.Errorf("sigstore verification failed (bundle source: %s): %w", source, verr)
 	}
+	_ = artifactFile.Close()
 	m.logMessage(uri, fmt.Sprintf("verified (rekor log index %d)", result.LogIndex))
 
 	return m.out.WriteMessage(codeURIDone, "URI Done",
