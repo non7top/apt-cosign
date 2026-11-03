@@ -222,12 +222,12 @@ func (m *Method) acquire(ctx context.Context, uri, filename string) error {
 	}
 
 	m.logMessage(uri, "downloading "+targetURL)
-	size, sha256Hex, err := m.dl.FetchToFile(ctx, targetURL, filename)
+	size, sha256Hex, finalURL, err := m.dl.FetchToFile(ctx, targetURL, filename)
 	if err != nil {
 		return fmt.Errorf("downloading target: %w", err)
 	}
 
-	bundles, source, err := m.candidateBundles(ctx, parsedTarget, targetURL, sha256Hex, enforce)
+	bundles, source, err := m.candidateBundles(ctx, parsedTarget, targetURL, finalURL, sha256Hex, enforce)
 	if err != nil {
 		_ = os.Remove(filename)
 		return fmt.Errorf("fetching signature bundle: %w", err)
@@ -272,29 +272,46 @@ func (m *Method) acquire(ctx context.Context, uri, filename string) error {
 // Debian detached-signature convention, e.g. Release/Release.gpg, just with
 // a Sigstore bundle instead), or -- if that's missing and the target is
 // GitHub-hosted -- bundles from GitHub's native Artifact Attestations API.
-func (m *Method) candidateBundles(ctx context.Context, target *url.URL, targetURL, sha256Hex string, enforce *config.Enforce) (bundles [][]byte, source string, err error) {
-	sidecarURL := fetch.BundleURL(targetURL, m.policy.BundleExtension)
-	data, err := m.dl.FetchBytes(ctx, sidecarURL, maxBundleBytes)
-	if err == nil {
-		return [][]byte{data}, sidecarURL, nil
+// When finalURL differs from targetURL (e.g. redirect to a mirror), candidateBundles
+// checks finalURL's sidecar first to prevent mirror desynchronization.
+func (m *Method) candidateBundles(ctx context.Context, target *url.URL, targetURL, finalURL, sha256Hex string, enforce *config.Enforce) (bundles [][]byte, source string, err error) {
+	var sidecarURLs []string
+	if finalURL != "" && finalURL != targetURL {
+		finalParsed, perr := url.Parse(finalURL)
+		if perr == nil && finalParsed.RawQuery == "" {
+			sidecarURLs = append(sidecarURLs, fetch.BundleURL(finalURL, m.policy.BundleExtension))
+		}
 	}
+	sidecarURLs = append(sidecarURLs, fetch.BundleURL(targetURL, m.policy.BundleExtension))
 
-	var statusErr *fetch.HTTPStatusError
-	if !(errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound) {
+	var lastErr error
+	for _, sidecarURL := range sidecarURLs {
+		data, err := m.dl.FetchBytes(ctx, sidecarURL, maxBundleBytes)
+		if err == nil {
+			return [][]byte{data}, sidecarURL, nil
+		}
+
+		var statusErr *fetch.HTTPStatusError
+		if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+			lastErr = err
+			continue
+		}
 		return nil, "", err
 	}
+
+	targetSidecarURL := fetch.BundleURL(targetURL, m.policy.BundleExtension)
 	if !fetch.IsGitHubHost(target) {
-		return nil, "", fmt.Errorf("no sidecar bundle at %s: %w", sidecarURL, err)
+		return nil, "", fmt.Errorf("no sidecar bundle at %s: %w", targetSidecarURL, lastErr)
 	}
 
 	owner, repo, ok := ownerRepoForAttestations(enforce, target)
 	if !ok {
-		return nil, "", fmt.Errorf("no sidecar bundle at %s (%v), and could not determine a GitHub owner/repo for the attestations API fallback", sidecarURL, err)
+		return nil, "", fmt.Errorf("no sidecar bundle at %s (%v), and could not determine a GitHub owner/repo for the attestations API fallback", targetSidecarURL, lastErr)
 	}
 
 	bundles, aerr := m.dl.GitHubAttestations(ctx, owner, repo, sha256Hex, m.policy.GitHubToken)
 	if aerr != nil {
-		return nil, "", fmt.Errorf("no sidecar bundle at %s (%v); GitHub attestations fallback also failed: %w", sidecarURL, err, aerr)
+		return nil, "", fmt.Errorf("no sidecar bundle at %s (%v); GitHub attestations fallback also failed: %w", targetSidecarURL, lastErr, aerr)
 	}
 	return bundles, fmt.Sprintf("GitHub attestations API (%s/%s)", owner, repo), nil
 }

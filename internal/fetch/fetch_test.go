@@ -51,9 +51,12 @@ func TestFetchToFile(t *testing.T) {
 	dest := filepath.Join(dir, "out")
 
 	d := NewDownloader()
-	size, digest, err := d.FetchToFile(context.Background(), srv.URL, dest)
+	size, digest, finalURL, err := d.FetchToFile(context.Background(), srv.URL, dest)
 	if err != nil {
 		t.Fatalf("FetchToFile: %v", err)
+	}
+	if finalURL != srv.URL {
+		t.Fatalf("finalURL = %q, want %q", finalURL, srv.URL)
 	}
 	if size != int64(len(content)) {
 		t.Fatalf("size = %d, want %d", size, len(content))
@@ -78,13 +81,69 @@ func TestFetchToFile_404(t *testing.T) {
 	defer srv.Close()
 
 	d := NewDownloader()
-	_, _, err := d.FetchToFile(context.Background(), srv.URL, filepath.Join(t.TempDir(), "out"))
+	_, _, _, err := d.FetchToFile(context.Background(), srv.URL, filepath.Join(t.TempDir(), "out"))
 	if err == nil {
 		t.Fatal("expected error for 404")
 	}
 	var statusErr *HTTPStatusError
 	if !asHTTPStatusError(err, &statusErr) || statusErr.StatusCode != 404 {
 		t.Fatalf("expected HTTPStatusError with 404, got %v", err)
+	}
+}
+
+func TestFetchToFile_Redirect(t *testing.T) {
+	const content = "redirected content"
+	var targetSrv *httptest.Server
+	targetSrv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(content))
+	}))
+	defer targetSrv.Close()
+
+	originSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, targetSrv.URL+"/final", http.StatusFound)
+	}))
+	defer originSrv.Close()
+
+	d := NewDownloader()
+	dest := filepath.Join(t.TempDir(), "out")
+	size, digest, finalURL, err := d.FetchToFile(context.Background(), originSrv.URL, dest)
+	if err != nil {
+		t.Fatalf("FetchToFile: %v", err)
+	}
+	if finalURL != targetSrv.URL+"/final" {
+		t.Fatalf("finalURL = %q, want %q", finalURL, targetSrv.URL+"/final")
+	}
+	if size != int64(len(content)) {
+		t.Fatalf("size = %d, want %d", size, len(content))
+	}
+	want := sha256.Sum256([]byte(content))
+	if digest != hex.EncodeToString(want[:]) {
+		t.Fatalf("digest mismatch")
+	}
+}
+
+func TestCheckRedirect_Insecure(t *testing.T) {
+	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("insecure"))
+	}))
+	defer httpSrv.Close()
+
+	httpsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, httpSrv.URL, http.StatusFound)
+	}))
+	defer httpsSrv.Close()
+
+	d := NewDownloader()
+	d.Client = httpsSrv.Client()
+	origCheck := NewDownloader().Client.CheckRedirect
+	d.Client.CheckRedirect = origCheck
+
+	_, _, _, err := d.FetchToFile(context.Background(), httpsSrv.URL, filepath.Join(t.TempDir(), "out"))
+	if err == nil {
+		t.Fatal("expected error when redirecting https to http")
+	}
+	if !strings.Contains(err.Error(), "insecure") {
+		t.Fatalf("unexpected error message: %v", err)
 	}
 }
 
