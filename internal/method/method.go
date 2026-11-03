@@ -165,10 +165,17 @@ func (m *Method) handleAcquire(ctx context.Context, msg *aptmsg.Message) {
 
 	if err := m.acquire(ctx, uri, filename); err != nil {
 		m.logger.Printf("acquire %s failed: %v", uri, err)
-		_ = m.out.WriteMessage(codeURIFailure, "URI Failure",
+		headers := []aptmsg.Header{
 			aptmsg.H("URI", uri),
 			aptmsg.H("Message", err.Error()),
-		)
+		}
+		if fetch.IsTransient(err) {
+			headers = append(headers, aptmsg.H("Transient-Failure", "true"))
+			if reason := fetch.FailReason(err); reason != "" {
+				headers = append(headers, aptmsg.H("FailReason", reason))
+			}
+		}
+		_ = m.out.WriteMessage(codeURIFailure, "URI Failure", headers...)
 	}
 }
 

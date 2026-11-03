@@ -12,12 +12,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -123,6 +126,92 @@ type HTTPStatusError struct {
 
 func (e *HTTPStatusError) Error() string {
 	return fmt.Sprintf("fetch: %s: unexpected status %d", e.URL, e.StatusCode)
+}
+
+func (e *HTTPStatusError) IsTransient() bool {
+	return e.StatusCode == http.StatusTooManyRequests ||
+		e.StatusCode == http.StatusRequestTimeout ||
+		(e.StatusCode >= 500 && e.StatusCode <= 599)
+}
+
+// IsTransient reports whether err represents a temporary network, timeout,
+// or server error that should trigger apt retry.
+func IsTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var statusErr *HTTPStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.IsTransient()
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		return true
+	}
+
+	if errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, syscall.ETIMEDOUT) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ENETUNREACH) ||
+		errors.Is(err, syscall.EHOSTUNREACH) {
+		return true
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return true
+		}
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		if !dnsErr.IsNotFound {
+			return true
+		}
+	}
+
+	return false
+}
+
+// FailReason returns an apt FailReason string for err if one applies.
+func FailReason(err error) string {
+	var statusErr *HTTPStatusError
+	if errors.As(err, &statusErr) {
+		if statusErr.StatusCode == http.StatusTooManyRequests {
+			return "TooManyRequests"
+		}
+		if statusErr.StatusCode == http.StatusRequestTimeout || statusErr.StatusCode == http.StatusGatewayTimeout {
+			return "Timeout"
+		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "Timeout"
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		if dnsErr.IsTimeout {
+			return "Timeout"
+		}
+		return "ResolveFailure"
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "ConnectionRefused"
+	}
+	if errors.Is(err, syscall.ETIMEDOUT) {
+		return "ConnectionTimedOut"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "Timeout"
+	}
+	return ""
 }
 
 // IsGitHubHost reports whether u is a github.com/raw.githubusercontent.com

@@ -200,6 +200,9 @@ func TestAcquire_VerificationFailure_RemovesFile(t *testing.T) {
 	if msg, _ := last.Get("Message"); !strings.Contains(msg, "boom") {
 		t.Fatalf("Message = %q", msg)
 	}
+	if v, ok := last.Get("Transient-Failure"); ok {
+		t.Fatalf("expected no Transient-Failure header on verification failure, got %q", v)
+	}
 	if _, err := os.Stat(destFile); !os.IsNotExist(err) {
 		t.Fatalf("expected downloaded file to be removed after failed verification, stat err = %v", err)
 	}
@@ -391,5 +394,52 @@ func TestHandleConfiguration_InvalidPolicy_RecordsError(t *testing.T) {
 	})
 	if m.policyErr == nil {
 		t.Fatal("expected policyErr to be set for a malformed rekorLogIndex")
+	}
+}
+
+func TestAcquire_TransientFailure_SendsTransientHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "busy", http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	destFile := filepath.Join(t.TempDir(), "InRelease")
+	uri := "sigstore+" + srv.URL + "/InRelease"
+
+	input := repoConfigMessage() + acquireMessage(uri, destFile)
+	out := runMethod(t, input, nil)
+
+	msgs := allMessages(t, out)
+	last := msgs[len(msgs)-1]
+	if last.Code != codeURIFailure {
+		t.Fatalf("code = %d, want %d", last.Code, codeURIFailure)
+	}
+	if v, ok := last.Get("Transient-Failure"); !ok || v != "true" {
+		t.Fatalf("Transient-Failure = %q (ok=%v), want %q", v, ok, "true")
+	}
+	if v, ok := last.Get("FailReason"); !ok || v != "TooManyRequests" {
+		t.Fatalf("FailReason = %q (ok=%v), want %q", v, ok, "TooManyRequests")
+	}
+}
+
+func TestAcquire_PermanentFailure_NoTransientHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	destFile := filepath.Join(t.TempDir(), "InRelease")
+	uri := "sigstore+" + srv.URL + "/InRelease"
+
+	input := repoConfigMessage() + acquireMessage(uri, destFile)
+	out := runMethod(t, input, nil)
+
+	msgs := allMessages(t, out)
+	last := msgs[len(msgs)-1]
+	if last.Code != codeURIFailure {
+		t.Fatalf("code = %d, want %d", last.Code, codeURIFailure)
+	}
+	if v, ok := last.Get("Transient-Failure"); ok {
+		t.Fatalf("expected no Transient-Failure header on 404, got %q", v)
 	}
 }
