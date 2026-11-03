@@ -171,6 +171,55 @@ func TestAcquire_Success_SidecarBundle(t *testing.T) {
 	}
 }
 
+func TestAcquire_Redirect_ResolvesSidecarAtDestination(t *testing.T) {
+	const targetContent = "Origin: test\n"
+	var sawMirrorSidecar bool
+	mirrorSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/mirror/InRelease":
+			_, _ = w.Write([]byte(targetContent))
+		case "/mirror/InRelease.sigstore":
+			sawMirrorSidecar = true
+			_, _ = w.Write([]byte(`{"fake":"mirror-bundle"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer mirrorSrv.Close()
+
+	originSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/dists/stable/InRelease":
+			http.Redirect(w, r, mirrorSrv.URL+"/mirror/InRelease", http.StatusFound)
+		default:
+			// Origin server does not have the sidecar.
+			http.NotFound(w, r)
+		}
+	}))
+	defer originSrv.Close()
+
+	destFile := filepath.Join(t.TempDir(), "InRelease")
+	uri := "sigstore+" + originSrv.URL + "/dists/stable/InRelease"
+
+	input := repoConfigMessage() + acquireMessage(uri, destFile)
+	out := runMethod(t, input, func(bundleJSON []byte) (*verify.Result, error) {
+		if !strings.Contains(string(bundleJSON), "mirror-bundle") {
+			t.Fatalf("unexpected bundle content: %s", bundleJSON)
+		}
+		return &verify.Result{LogIndex: 1}, nil
+	})
+
+	if !sawMirrorSidecar {
+		t.Fatal("expected the sidecar to be resolved from the mirror destination")
+	}
+
+	msgs := allMessages(t, out)
+	last := msgs[len(msgs)-1]
+	if last.Code != codeURIDone {
+		t.Fatalf("code = %d, want %d (%s)", last.Code, codeURIDone, last.Description)
+	}
+}
+
 func TestAcquire_VerificationFailure_RemovesFile(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

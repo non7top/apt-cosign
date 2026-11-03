@@ -52,39 +52,57 @@ type Downloader struct {
 }
 
 func NewDownloader() *Downloader {
-	return &Downloader{Client: &http.Client{Timeout: 2 * time.Minute}}
+	return &Downloader{
+		Client: &http.Client{
+			Timeout: 2 * time.Minute,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return errors.New("stopped after 10 redirects")
+				}
+				if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+					return fmt.Errorf("fetch: redirect from https to insecure %s forbidden", req.URL.Scheme)
+				}
+				return nil
+			},
+		},
+	}
 }
 
 // FetchToFile GETs url and streams the response body into destPath,
-// returning the size and hex-encoded SHA-256 digest of what was written.
+// returning the size, hex-encoded SHA-256 digest of what was written,
+// and the final URL after following redirects.
 // destPath's parent directory must already exist (APT creates lists/partial
 // and archives/partial itself).
-func (d *Downloader) FetchToFile(ctx context.Context, rawURL, destPath string) (size int64, sha256Hex string, err error) {
-	body, err := d.get(ctx, rawURL)
+func (d *Downloader) FetchToFile(ctx context.Context, rawURL, destPath string) (size int64, sha256Hex string, finalURL string, err error) {
+	body, respURL, err := d.get(ctx, rawURL)
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	defer body.Close()
 
 	f, err := os.Create(destPath)
 	if err != nil {
-		return 0, "", fmt.Errorf("fetch: creating %s: %w", destPath, err)
+		return 0, "", "", fmt.Errorf("fetch: creating %s: %w", destPath, err)
 	}
 	defer f.Close()
 
 	h := sha256.New()
 	n, err := io.Copy(io.MultiWriter(f, h), body)
 	if err != nil {
-		return 0, "", fmt.Errorf("fetch: downloading %s: %w", rawURL, err)
+		return 0, "", "", fmt.Errorf("fetch: downloading %s: %w", rawURL, err)
 	}
-	return n, hex.EncodeToString(h.Sum(nil)), nil
+	resolved := rawURL
+	if respURL != nil {
+		resolved = respURL.String()
+	}
+	return n, hex.EncodeToString(h.Sum(nil)), resolved, nil
 }
 
 // FetchBytes GETs url fully into memory, up to maxBytes (+1, to detect
 // truncation) to bound memory use against an oversized or malicious
 // response.
 func (d *Downloader) FetchBytes(ctx context.Context, rawURL string, maxBytes int64) ([]byte, error) {
-	body, err := d.get(ctx, rawURL)
+	body, _, err := d.get(ctx, rawURL)
 	if err != nil {
 		return nil, err
 	}
@@ -100,20 +118,20 @@ func (d *Downloader) FetchBytes(ctx context.Context, rawURL string, maxBytes int
 	return data, nil
 }
 
-func (d *Downloader) get(ctx context.Context, rawURL string) (io.ReadCloser, error) {
+func (d *Downloader) get(ctx context.Context, rawURL string) (io.ReadCloser, *url.URL, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("fetch: building request for %s: %w", rawURL, err)
+		return nil, nil, fmt.Errorf("fetch: building request for %s: %w", rawURL, err)
 	}
 	resp, err := d.Client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch: %s: %w", rawURL, err)
+		return nil, nil, fmt.Errorf("fetch: %s: %w", rawURL, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, &HTTPStatusError{URL: rawURL, StatusCode: resp.StatusCode}
+		return nil, nil, &HTTPStatusError{URL: rawURL, StatusCode: resp.StatusCode}
 	}
-	return resp.Body, nil
+	return resp.Body, resp.Request.URL, nil
 }
 
 // HTTPStatusError is returned when a fetch gets a non-200 response. Callers
@@ -218,7 +236,8 @@ func FailReason(err error) string {
 // (or api.github.com) endpoint.
 func IsGitHubHost(u *url.URL) bool {
 	switch u.Hostname() {
-	case "github.com", "raw.githubusercontent.com", "api.github.com":
+	case "github.com", "raw.githubusercontent.com", "api.github.com",
+		"release-assets.githubusercontent.com", "objects.githubusercontent.com":
 		return true
 	}
 	return false
