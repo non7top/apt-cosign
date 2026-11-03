@@ -4,12 +4,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -165,4 +170,73 @@ func asHTTPStatusError(err error, target **HTTPStatusError) bool {
 		return true
 	}
 	return false
+}
+
+func TestIsTransient(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"generic error", errors.New("something went wrong"), false},
+		{"404 not found", &HTTPStatusError{StatusCode: 404}, false},
+		{"403 forbidden", &HTTPStatusError{StatusCode: 403}, false},
+		{"429 too many requests", &HTTPStatusError{StatusCode: 429}, true},
+		{"408 request timeout", &HTTPStatusError{StatusCode: 408}, true},
+		{"500 internal server error", &HTTPStatusError{StatusCode: 500}, true},
+		{"502 bad gateway", &HTTPStatusError{StatusCode: 502}, true},
+		{"503 service unavailable", &HTTPStatusError{StatusCode: 503}, true},
+		{"504 gateway timeout", &HTTPStatusError{StatusCode: 504}, true},
+		{"wrapped 503", fmt.Errorf("fetch failed: %w", &HTTPStatusError{StatusCode: 503}), true},
+		{"deadline exceeded", context.DeadlineExceeded, true},
+		{"unexpected EOF", io.ErrUnexpectedEOF, true},
+		{"EOF", io.EOF, true},
+		{"connection reset", syscall.ECONNRESET, true},
+		{"connection refused", syscall.ECONNREFUSED, true},
+		{"timed out", syscall.ETIMEDOUT, true},
+		{"broken pipe", syscall.EPIPE, true},
+		{"network unreachable", syscall.ENETUNREACH, true},
+		{"host unreachable", syscall.EHOSTUNREACH, true},
+		{"wrapped conn reset", fmt.Errorf("read: %w", syscall.ECONNRESET), true},
+		{"dns temporary", &net.DNSError{IsTemporary: true}, true},
+		{"dns timeout", &net.DNSError{IsTimeout: true}, true},
+		{"dns resolve failure", &net.DNSError{}, true},
+		{"dns not found", &net.DNSError{IsNotFound: true}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsTransient(tt.err); got != tt.want {
+				t.Errorf("IsTransient(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFailReason(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"nil", nil, ""},
+		{"429", &HTTPStatusError{StatusCode: 429}, "TooManyRequests"},
+		{"408", &HTTPStatusError{StatusCode: 408}, "Timeout"},
+		{"504", &HTTPStatusError{StatusCode: 504}, "Timeout"},
+		{"deadline exceeded", context.DeadlineExceeded, "Timeout"},
+		{"dns timeout", &net.DNSError{IsTimeout: true}, "Timeout"},
+		{"dns resolve failure", &net.DNSError{}, "ResolveFailure"},
+		{"conn refused", syscall.ECONNREFUSED, "ConnectionRefused"},
+		{"conn timed out", syscall.ETIMEDOUT, "ConnectionTimedOut"},
+		{"other error", errors.New("other"), ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := FailReason(tt.err); got != tt.want {
+				t.Errorf("FailReason(%v) = %q, want %q", tt.err, got, tt.want)
+			}
+		})
+	}
 }
