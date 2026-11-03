@@ -234,8 +234,8 @@ func TestFromItems_Sources(t *testing.T) {
 	if len(p.Sources) != 2 {
 		t.Fatalf("expected 2 sources, got %d", len(p.Sources))
 	}
-	// Sorted by name: "apt-cosign" < "nginx-modules".
-	if p.Sources[0].Name != "apt-cosign" || p.Sources[1].Name != "nginx-modules" {
+	// Sorted descending by match length: len(".../nginx-modules/") > len(".../apt-cosign/").
+	if p.Sources[0].Name != "nginx-modules" || p.Sources[1].Name != "apt-cosign" {
 		t.Fatalf("unexpected source order: %+v", p.Sources)
 	}
 
@@ -392,5 +392,58 @@ func TestFromItems_Sources_BoundaryEnforcement(t *testing.T) {
 	}
 	if _, _, err := p.PolicyFor("https://trusted.org.attacker.com/Release"); err == nil {
 		t.Fatal("expected no policy match for sibling domain trusted.org.attacker.com")
+	}
+}
+
+func TestFromItems_Sources_LongestPrefixOrder(t *testing.T) {
+	items := map[string]string{
+		"Acquire::sigstore::Sources::broad::Match":                "https://example.com/",
+		"Acquire::sigstore::Sources::broad::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::broad::Enforce::Repo::Name":  "broad",
+
+		"Acquire::sigstore::Sources::strict::Match":                "https://example.com/repo/strict/",
+		"Acquire::sigstore::Sources::strict::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::strict::Enforce::Repo::Name":  "strict",
+
+		// Same length as broad to test deterministic tie-breaking by name: "alpha" vs "broad"
+		"Acquire::sigstore::Sources::alpha::Match":                "https://example.org/",
+		"Acquire::sigstore::Sources::alpha::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::alpha::Enforce::Repo::Name":  "alpha",
+	}
+	p, err := FromItems(items)
+	if err != nil {
+		t.Fatalf("FromItems: %v", err)
+	}
+
+	if len(p.Sources) != 3 {
+		t.Fatalf("expected 3 sources, got %d", len(p.Sources))
+	}
+	// "strict" has length 32; "alpha" and "broad" both have length 20, broken alphabetically.
+	if p.Sources[0].Name != "strict" {
+		t.Fatalf("expected p.Sources[0] to be strict, got %s", p.Sources[0].Name)
+	}
+	if p.Sources[1].Name != "alpha" {
+		t.Fatalf("expected p.Sources[1] to be alpha, got %s", p.Sources[1].Name)
+	}
+	if p.Sources[2].Name != "broad" {
+		t.Fatalf("expected p.Sources[2] to be broad, got %s", p.Sources[2].Name)
+	}
+
+	// Stricter prefix takes precedence over broader prefix even though "broad" < "strict" alphabetically.
+	_, source, err := p.PolicyFor("https://example.com/repo/strict/InRelease")
+	if err != nil {
+		t.Fatalf("PolicyFor: %v", err)
+	}
+	if source != "strict" {
+		t.Fatalf("expected source strict, got %q", source)
+	}
+
+	// URL outside strict falls back to broad.
+	_, source, err = p.PolicyFor("https://example.com/repo/other/InRelease")
+	if err != nil {
+		t.Fatalf("PolicyFor: %v", err)
+	}
+	if source != "broad" {
+		t.Fatalf("expected source broad, got %q", source)
 	}
 }

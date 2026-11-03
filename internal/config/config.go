@@ -132,15 +132,16 @@ type Policy struct {
 	HasDefault bool
 
 	// Sources are named, URL-prefix-scoped policies from
-	// Acquire::sigstore::Sources::<name> blocks, sorted by Name for
+	// Acquire::sigstore::Sources::<name> blocks, sorted descending by
+	// Match prefix length (longest-prefix match) and then by Name for
 	// deterministic dispatch order.
 	Sources []ScopedEnforce
 }
 
 // PolicyFor returns the Enforce policy that applies to targetURL (the
-// mapped https:// target, i.e. after fetch.MapURI): the first (by Name) of
-// Sources whose Match is a prefix of targetURL (respecting path and host
-// boundaries), the default Enforce block
+// mapped https:// target, i.e. after fetch.MapURI): the longest-matching
+// (by Match prefix length) of Sources whose Match is a prefix of
+// targetURL (respecting path and host boundaries), the default Enforce block
 // if none match and one is configured, or -- if neither is configured at
 // all -- a policy derived entirely from targetURL itself for a
 // github.com/raw.githubusercontent.com target (any workflow, any ref, for
@@ -311,5 +312,13 @@ func parseSources(items map[string]string) ([]ScopedEnforce, error) {
 		}
 		sources = append(sources, ScopedEnforce{Name: name, Match: match, Enforce: enf})
 	}
+
+	sort.Slice(sources, func(i, j int) bool {
+		if len(sources[i].Match) != len(sources[j].Match) {
+			return len(sources[i].Match) > len(sources[j].Match)
+		}
+		return sources[i].Name < sources[j].Name
+	})
+
 	return sources, nil
 }
