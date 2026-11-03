@@ -3,6 +3,7 @@ package method
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -490,5 +491,150 @@ func TestAcquire_PermanentFailure_NoTransientHeader(t *testing.T) {
 	}
 	if v, ok := last.Get("Transient-Failure"); ok {
 		t.Fatalf("expected no Transient-Failure header on 404, got %q", v)
+	}
+}
+
+func TestAcquire_StreamArtifact(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, ".sigstore"):
+			_, _ = w.Write([]byte(`{"fake":"bundle"}`))
+		default:
+			_, _ = w.Write([]byte("large artifact payload content"))
+		}
+	}))
+	defer srv.Close()
+
+	destFile := filepath.Join(t.TempDir(), "test.deb")
+	uri := "sigstore+" + srv.URL + "/test.deb"
+
+	input := repoConfigMessage() + acquireMessage(uri, destFile)
+
+	var isFile bool
+	var readOffset int64
+	var readPayload []byte
+
+	var out bytes.Buffer
+	m := New(strings.NewReader(input), &out, nil)
+	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+		return &fakeTrustedMaterial{}, nil
+	}
+	m.verifyBundle = func(_ root.TrustedMaterial, _ []byte, artifact io.Reader, _ verify.IdentityPolicy) (*verify.Result, error) {
+		if f, ok := artifact.(*os.File); ok {
+			isFile = true
+			pos, err := f.Seek(0, io.SeekCurrent)
+			if err != nil {
+				return nil, err
+			}
+			readOffset = pos
+		}
+		var err error
+		readPayload, err = io.ReadAll(artifact)
+		if err != nil {
+			return nil, err
+		}
+		return &verify.Result{LogIndex: 1}, nil
+	}
+
+	if err := m.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if !isFile {
+		t.Fatal("expected artifact passed to verifyBundle to be an *os.File")
+	}
+	if readOffset != 0 {
+		t.Fatalf("expected initial file offset to be 0, got %d", readOffset)
+	}
+	if string(readPayload) != "large artifact payload content" {
+		t.Fatalf("read payload = %q, want %q", string(readPayload), "large artifact payload content")
+	}
+
+	content, err := os.ReadFile(destFile)
+	if err != nil {
+		t.Fatalf("reading destination file after acquire: %v", err)
+	}
+	if string(content) != "large artifact payload content" {
+		t.Fatalf("destination file content = %q, want %q", string(content), "large artifact payload content")
+	}
+}
+
+func TestAcquire_StreamArtifact_MultipleBundlesRewound(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, ".sigstore"):
+			http.NotFound(w, r)
+		case strings.Contains(r.URL.Path, "/attestations/"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"attestations": [
+					{"bundle": {"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.2", "attempt": 1}},
+					{"bundle": {"mediaType": "application/vnd.dev.sigstore.bundle+json;version=0.2", "attempt": 2}}
+				]
+			}`))
+		default:
+			_, _ = w.Write([]byte("streaming artifact to verify"))
+		}
+	}))
+	defer srv.Close()
+
+	serverHostPort := strings.TrimPrefix(srv.URL, "https://")
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return (&tls.Dialer{
+					Config: &tls.Config{InsecureSkipVerify: true},
+				}).DialContext(ctx, network, serverHostPort)
+			},
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, network, serverHostPort)
+			},
+		},
+	}
+
+	destFile := filepath.Join(t.TempDir(), "InRelease")
+	uri := "sigstore+https://raw.githubusercontent.com/octo-org/widgets/InRelease"
+
+	input := repoConfigMessage() + acquireMessage(uri, destFile)
+
+	var calls int
+	var readPayloads []string
+
+	var out bytes.Buffer
+	m := New(strings.NewReader(input), &out, nil)
+	m.dl.Client = client
+	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+		return &fakeTrustedMaterial{}, nil
+	}
+	m.verifyBundle = func(_ root.TrustedMaterial, _ []byte, artifact io.Reader, _ verify.IdentityPolicy) (*verify.Result, error) {
+		calls++
+		data, err := io.ReadAll(artifact)
+		if err != nil {
+			return nil, err
+		}
+		readPayloads = append(readPayloads, string(data))
+		if calls == 1 {
+			// First bundle fails; method must rewind artifact and try second bundle.
+			return nil, fmt.Errorf("bundle 1 invalid")
+		}
+		return &verify.Result{LogIndex: 2}, nil
+	}
+
+	if err := m.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if calls != 2 {
+		t.Fatalf("expected 2 verifyBundle calls, got %d", calls)
+	}
+	if len(readPayloads) != 2 {
+		t.Fatalf("expected 2 read payloads, got %d", len(readPayloads))
+	}
+	for i, payload := range readPayloads {
+		if payload != "streaming artifact to verify" {
+			t.Fatalf("call %d read payload = %q, want %q (was file properly rewound?)", i+1, payload, "streaming artifact to verify")
+		}
 	}
 }

@@ -234,8 +234,8 @@ func TestFromItems_Sources(t *testing.T) {
 	if len(p.Sources) != 2 {
 		t.Fatalf("expected 2 sources, got %d", len(p.Sources))
 	}
-	// Sorted by name: "apt-cosign" < "nginx-modules".
-	if p.Sources[0].Name != "apt-cosign" || p.Sources[1].Name != "nginx-modules" {
+	// Sorted descending by match length: len(".../nginx-modules/") > len(".../apt-cosign/").
+	if p.Sources[0].Name != "nginx-modules" || p.Sources[1].Name != "apt-cosign" {
 		t.Fatalf("unexpected source order: %+v", p.Sources)
 	}
 
@@ -318,5 +318,132 @@ func TestFromItems_SourceMissingEnforce(t *testing.T) {
 	}
 	if _, err := FromItems(items); err == nil {
 		t.Fatal("expected error for a Sources entry with no Enforce policy")
+	}
+}
+
+func TestFromItems_SourceInvalidMatchURL(t *testing.T) {
+	items := map[string]string{
+		"Acquire::sigstore::Sources::bad::Match":                "not-a-url",
+		"Acquire::sigstore::Sources::bad::Enforce::Repo::Owner": "octo-org",
+		"Acquire::sigstore::Sources::bad::Enforce::Repo::Name":  "widgets",
+	}
+	if _, err := FromItems(items); err == nil {
+		t.Fatal("expected error for non-URL Match")
+	}
+}
+
+func TestMatchURLPrefix(t *testing.T) {
+	tests := []struct {
+		target string
+		prefix string
+		want   bool
+	}{
+		{"https://example.com/repo", "https://example.com/repo", true},
+		{"https://example.com/repo/", "https://example.com/repo", true},
+		{"https://example.com/repo", "https://example.com/repo/", true},
+		{"https://example.com/repo/dists/Release", "https://example.com/repo", true},
+		{"https://example.com/repo/dists/Release", "https://example.com/repo/", true},
+		{"https://example.com/repo-evil/dists/Release", "https://example.com/repo", false},
+		{"https://example.com/repo-evil/dists/Release", "https://example.com/repo/", false},
+		{"https://example.com/repostuff", "https://example.com/repo", false},
+		{"https://example.com", "https://example.com", true},
+		{"https://example.com/", "https://example.com", true},
+		{"https://example.com", "https://example.com/", true},
+		{"https://example.com/dists/Release", "https://example.com", true},
+		{"https://example.com.attacker.org/Release", "https://example.com", false},
+		{"https://example.com:8080/Release", "https://example.com", false},
+		{"https://example.com:8080/Release", "https://example.com:8080", true},
+		{"https://example.com/repo?param=val", "https://example.com/repo", true},
+	}
+	for _, tt := range tests {
+		got := matchURLPrefix(tt.target, tt.prefix)
+		if got != tt.want {
+			t.Errorf("matchURLPrefix(%q, %q) = %v, want %v", tt.target, tt.prefix, got, tt.want)
+		}
+	}
+}
+
+func TestFromItems_Sources_BoundaryEnforcement(t *testing.T) {
+	items := map[string]string{
+		"Acquire::sigstore::Sources::repo::Match":                "https://example.com/repo",
+		"Acquire::sigstore::Sources::repo::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::repo::Enforce::Repo::Name":  "repo",
+
+		"Acquire::sigstore::Sources::domain::Match":                "https://trusted.org",
+		"Acquire::sigstore::Sources::domain::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::domain::Enforce::Repo::Name":  "domain",
+	}
+	p, err := FromItems(items)
+	if err != nil {
+		t.Fatalf("FromItems: %v", err)
+	}
+
+	// Legitimate child paths match.
+	if _, source, err := p.PolicyFor("https://example.com/repo/dists/Release"); err != nil || source != "repo" {
+		t.Fatalf("expected match for repo child, got source=%q err=%v", source, err)
+	}
+	if _, source, err := p.PolicyFor("https://trusted.org/pool/main/p.deb"); err != nil || source != "domain" {
+		t.Fatalf("expected match for domain child, got source=%q err=%v", source, err)
+	}
+
+	// Sibling paths and sibling domains do not match.
+	if _, _, err := p.PolicyFor("https://example.com/repo-malicious/dists/Release"); err == nil {
+		t.Fatal("expected no policy match for sibling path repo-malicious")
+	}
+	if _, _, err := p.PolicyFor("https://trusted.org.attacker.com/Release"); err == nil {
+		t.Fatal("expected no policy match for sibling domain trusted.org.attacker.com")
+	}
+}
+
+func TestFromItems_Sources_LongestPrefixOrder(t *testing.T) {
+	items := map[string]string{
+		"Acquire::sigstore::Sources::broad::Match":                "https://example.com/",
+		"Acquire::sigstore::Sources::broad::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::broad::Enforce::Repo::Name":  "broad",
+
+		"Acquire::sigstore::Sources::strict::Match":                "https://example.com/repo/strict/",
+		"Acquire::sigstore::Sources::strict::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::strict::Enforce::Repo::Name":  "strict",
+
+		// Same length as broad to test deterministic tie-breaking by name: "alpha" vs "broad"
+		"Acquire::sigstore::Sources::alpha::Match":                "https://example.org/",
+		"Acquire::sigstore::Sources::alpha::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::alpha::Enforce::Repo::Name":  "alpha",
+	}
+	p, err := FromItems(items)
+	if err != nil {
+		t.Fatalf("FromItems: %v", err)
+	}
+
+	if len(p.Sources) != 3 {
+		t.Fatalf("expected 3 sources, got %d", len(p.Sources))
+	}
+	// "strict" has length 32; "alpha" and "broad" both have length 20, broken alphabetically.
+	if p.Sources[0].Name != "strict" {
+		t.Fatalf("expected p.Sources[0] to be strict, got %s", p.Sources[0].Name)
+	}
+	if p.Sources[1].Name != "alpha" {
+		t.Fatalf("expected p.Sources[1] to be alpha, got %s", p.Sources[1].Name)
+	}
+	if p.Sources[2].Name != "broad" {
+		t.Fatalf("expected p.Sources[2] to be broad, got %s", p.Sources[2].Name)
+	}
+
+	// Stricter prefix takes precedence over broader prefix even though "broad" < "strict" alphabetically.
+	_, source, err := p.PolicyFor("https://example.com/repo/strict/InRelease")
+	if err != nil {
+		t.Fatalf("PolicyFor: %v", err)
+	}
+	if source != "strict" {
+		t.Fatalf("expected source strict, got %q", source)
+	}
+
+	// URL outside strict falls back to broad.
+	_, source, err = p.PolicyFor("https://example.com/repo/other/InRelease")
+	if err != nil {
+		t.Fatalf("PolicyFor: %v", err)
+	}
+	if source != "broad" {
+		t.Fatalf("expected source broad, got %q", source)
 	}
 }
