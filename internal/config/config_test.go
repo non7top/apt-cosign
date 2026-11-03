@@ -320,3 +320,77 @@ func TestFromItems_SourceMissingEnforce(t *testing.T) {
 		t.Fatal("expected error for a Sources entry with no Enforce policy")
 	}
 }
+
+func TestFromItems_SourceInvalidMatchURL(t *testing.T) {
+	items := map[string]string{
+		"Acquire::sigstore::Sources::bad::Match":                "not-a-url",
+		"Acquire::sigstore::Sources::bad::Enforce::Repo::Owner": "octo-org",
+		"Acquire::sigstore::Sources::bad::Enforce::Repo::Name":  "widgets",
+	}
+	if _, err := FromItems(items); err == nil {
+		t.Fatal("expected error for non-URL Match")
+	}
+}
+
+func TestMatchURLPrefix(t *testing.T) {
+	tests := []struct {
+		target string
+		prefix string
+		want   bool
+	}{
+		{"https://example.com/repo", "https://example.com/repo", true},
+		{"https://example.com/repo/", "https://example.com/repo", true},
+		{"https://example.com/repo", "https://example.com/repo/", true},
+		{"https://example.com/repo/dists/Release", "https://example.com/repo", true},
+		{"https://example.com/repo/dists/Release", "https://example.com/repo/", true},
+		{"https://example.com/repo-evil/dists/Release", "https://example.com/repo", false},
+		{"https://example.com/repo-evil/dists/Release", "https://example.com/repo/", false},
+		{"https://example.com/repostuff", "https://example.com/repo", false},
+		{"https://example.com", "https://example.com", true},
+		{"https://example.com/", "https://example.com", true},
+		{"https://example.com", "https://example.com/", true},
+		{"https://example.com/dists/Release", "https://example.com", true},
+		{"https://example.com.attacker.org/Release", "https://example.com", false},
+		{"https://example.com:8080/Release", "https://example.com", false},
+		{"https://example.com:8080/Release", "https://example.com:8080", true},
+		{"https://example.com/repo?param=val", "https://example.com/repo", true},
+	}
+	for _, tt := range tests {
+		got := matchURLPrefix(tt.target, tt.prefix)
+		if got != tt.want {
+			t.Errorf("matchURLPrefix(%q, %q) = %v, want %v", tt.target, tt.prefix, got, tt.want)
+		}
+	}
+}
+
+func TestFromItems_Sources_BoundaryEnforcement(t *testing.T) {
+	items := map[string]string{
+		"Acquire::sigstore::Sources::repo::Match":                "https://example.com/repo",
+		"Acquire::sigstore::Sources::repo::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::repo::Enforce::Repo::Name":  "repo",
+
+		"Acquire::sigstore::Sources::domain::Match":                "https://trusted.org",
+		"Acquire::sigstore::Sources::domain::Enforce::Repo::Owner": "example",
+		"Acquire::sigstore::Sources::domain::Enforce::Repo::Name":  "domain",
+	}
+	p, err := FromItems(items)
+	if err != nil {
+		t.Fatalf("FromItems: %v", err)
+	}
+
+	// Legitimate child paths match.
+	if _, source, err := p.PolicyFor("https://example.com/repo/dists/Release"); err != nil || source != "repo" {
+		t.Fatalf("expected match for repo child, got source=%q err=%v", source, err)
+	}
+	if _, source, err := p.PolicyFor("https://trusted.org/pool/main/p.deb"); err != nil || source != "domain" {
+		t.Fatalf("expected match for domain child, got source=%q err=%v", source, err)
+	}
+
+	// Sibling paths and sibling domains do not match.
+	if _, _, err := p.PolicyFor("https://example.com/repo-malicious/dists/Release"); err == nil {
+		t.Fatal("expected no policy match for sibling path repo-malicious")
+	}
+	if _, _, err := p.PolicyFor("https://trusted.org.attacker.com/Release"); err == nil {
+		t.Fatal("expected no policy match for sibling domain trusted.org.attacker.com")
+	}
+}

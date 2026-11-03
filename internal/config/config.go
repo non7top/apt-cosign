@@ -139,7 +139,8 @@ type Policy struct {
 
 // PolicyFor returns the Enforce policy that applies to targetURL (the
 // mapped https:// target, i.e. after fetch.MapURI): the first (by Name) of
-// Sources whose Match is a prefix of targetURL, the default Enforce block
+// Sources whose Match is a prefix of targetURL (respecting path and host
+// boundaries), the default Enforce block
 // if none match and one is configured, or -- if neither is configured at
 // all -- a policy derived entirely from targetURL itself for a
 // github.com/raw.githubusercontent.com target (any workflow, any ref, for
@@ -151,7 +152,7 @@ type Policy struct {
 // so it still fails closed.
 func (p *Policy) PolicyFor(targetURL string) (enf *Enforce, source string, err error) {
 	for i := range p.Sources {
-		if strings.HasPrefix(targetURL, p.Sources[i].Match) {
+		if matchURLPrefix(targetURL, p.Sources[i].Match) {
 			return &p.Sources[i].Enforce, p.Sources[i].Name, nil
 		}
 	}
@@ -162,6 +163,24 @@ func (p *Policy) PolicyFor(targetURL string) (enf *Enforce, source string, err e
 		return &Enforce{Repo: &RepoIdentity{}}, "derived-from-url", nil
 	}
 	return nil, "", fmt.Errorf("no sigstore policy matches %s (no %s<name>::Match prefix, no default %s::* block configured, and it's not a GitHub-hosted URL an identity could be derived from)", targetURL, keySourcesPrefix, keyDefaultEnforceBase)
+}
+
+// matchURLPrefix reports whether targetURL matches the prefix URL match
+// on a boundary delimiter (a '/', '?', '#', or the end of the URL), preventing
+// a prefix like "https://example.com/repo" from matching "https://example.com/repo-evil"
+// or "https://example.com" from matching "https://example.com.attacker.org".
+func matchURLPrefix(targetURL, match string) bool {
+	if strings.TrimSuffix(targetURL, "/") == strings.TrimSuffix(match, "/") {
+		return true
+	}
+	if !strings.HasPrefix(targetURL, match) {
+		return false
+	}
+	if strings.HasSuffix(match, "/") {
+		return true
+	}
+	next := targetURL[len(match)]
+	return next == '/' || next == '?' || next == '#'
 }
 
 // ParseConfigItem splits an APT "Config-Item" header value ("Key=Value")
@@ -278,6 +297,10 @@ func parseSources(items map[string]string) ([]ScopedEnforce, error) {
 		match := sub["Match"]
 		if match == "" {
 			return nil, fmt.Errorf("config: %s%s::Match must be set", keySourcesPrefix, name)
+		}
+		u, err := url.Parse(match)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return nil, fmt.Errorf("config: %s%s::Match %q is not a valid absolute URL", keySourcesPrefix, name, match)
 		}
 		enf, has, err := parseEnforce(sub, "Enforce")
 		if err != nil {
