@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.3](https://github.com/non7top/apt-cosign/compare/v0.8.2...v0.8.3) (2026-11-04)
+
+
+### Bug Fixes
+
+* **config:** dispatch sources by longest match prefix instead of name ([e4147fb](https://github.com/non7top/apt-cosign/commit/e4147fb0b6baf6d895c3d65322d48d7262bc078c))
+* **config:** enforce path and host boundaries in source match prefix evaluation ([ff7e79b](https://github.com/non7top/apt-cosign/commit/ff7e79bb467d4d6e2a94734ce38a1f0766149a5b))
+* **fetch:** synchronize bundle resolution with followed redirect locations ([0eb7e34](https://github.com/non7top/apt-cosign/commit/0eb7e34aa3e6f99a5f80d0915146987035dded3c))
+* **fetch:** synchronize bundle resolution with followed redirect locations ([a91c6bc](https://github.com/non7top/apt-cosign/commit/a91c6bc768c30524bef9134a5fa4fbaeb5b88576))
+* **method:** address review feedback on debug logging ([1469be3](https://github.com/non7top/apt-cosign/commit/1469be391d25c6e566a626fc04e76820d15dc9e5))
+* **method:** disable debug log by default and enforce safe open flags ([7424c42](https://github.com/non7top/apt-cosign/commit/7424c429832e07c98b590831bc91931f40d30d5f))
+* **method:** drop root privileges to apt sandbox user after configuration ([9456b66](https://github.com/non7top/apt-cosign/commit/9456b66d8594d2972e652ae220ee79a25e837c6f))
+* **method:** drop root privileges to apt sandbox user after configuration ([a7862b7](https://github.com/non7top/apt-cosign/commit/a7862b7bb2cbce5c15ed3520ac4987b37fa37acf))
+* **method:** send Transient-Failure on temporary network and server errors ([4e62aea](https://github.com/non7top/apt-cosign/commit/4e62aea44b89b1323a5af7af1f97ece6aacdcc33))
+* **method:** send Transient-Failure on temporary network and server errors ([0e1b691](https://github.com/non7top/apt-cosign/commit/0e1b691d6186e2b3d68b4320e36cda901a5506ad))
+* **method:** stream artifact from disk during bundle verification ([6c5a4f3](https://github.com/non7top/apt-cosign/commit/6c5a4f39c8968dd5da777b9deffb6e9e1d627210))
+* **method:** stream artifact from disk during bundle verification ([7b231b1](https://github.com/non7top/apt-cosign/commit/7b231b1ec7426c5ab0d1a0038c874ad08925b1bb))
+* **verify:** address review feedback on TUF retry and cache fallback ([fc0f174](https://github.com/non7top/apt-cosign/commit/fc0f174064e7ecf5edf2c01e34b8587caa042926))
+* **verify:** retry trusted root refresh and fallback to cached root on CDN failure ([eda94fe](https://github.com/non7top/apt-cosign/commit/eda94fed151379a9bdaeb331cfd539dfb280fb5b))
+
 ## [0.8.2](https://github.com/non7top/apt-cosign/compare/v0.8.1...v0.8.2) (2026-11-02)
 
 
