@@ -214,7 +214,7 @@ func FromItems(items map[string]string) (*Policy, error) {
 		p.CacheDir = v
 	}
 	if v, ok := items[keyDebug]; ok {
-		p.Debug = isTrue(v)
+		p.Debug = IsTrue(v)
 	}
 	if v, ok := items[keyDebugLog]; ok && v != "" {
 		p.DebugLog = v
@@ -241,7 +241,9 @@ func FromItems(items map[string]string) (*Policy, error) {
 	return p, nil
 }
 
-func isTrue(v string) bool {
+// IsTrue reports whether a string represents a boolean true value
+// ("true", "1", "yes", "on", case-insensitively).
+func IsTrue(v string) bool {
 	v = strings.ToLower(strings.TrimSpace(v))
 	return v == "true" || v == "1" || v == "yes" || v == "on"
 }

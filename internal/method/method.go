@@ -41,12 +41,6 @@ const (
 	codeConfiguration = 601
 )
 
-// DefaultDebugLogPath is the default path used when debug logging is enabled.
-const DefaultDebugLogPath = "/var/lib/apt-cosign/debug.log"
-
-// DebugLogPath is kept for backward compatibility.
-const DebugLogPath = DefaultDebugLogPath
-
 // maxBundleBytes bounds how large a single Sigstore bundle (sidecar file or
 // GitHub attestation) we'll read into memory; real bundles are a few KB to
 // a few hundred KB even with a full cert chain and inclusion proof.
@@ -89,16 +83,17 @@ func createLogger(dest, defaultPath string) *log.Logger {
 		return log.New(os.Stderr, "apt-cosign: ", log.LstdFlags|log.Lmicroseconds)
 	}
 	path := dest
-	if path == "1" || strings.EqualFold(path, "true") || strings.EqualFold(path, "yes") || strings.EqualFold(path, "on") {
+	if config.IsTrue(path) {
 		if defaultPath != "" {
 			path = defaultPath
 		} else {
-			path = DefaultDebugLogPath
+			path = filepath.Join(config.DefaultCacheDir, "debug.log")
 		}
 	}
 	f, err := openSafeLogFile(path)
 	if err != nil {
-		return log.New(io.Discard, "", 0)
+		fmt.Fprintf(os.Stderr, "apt-cosign: failed to open debug log %q (%v); falling back to stderr\n", path, err)
+		return log.New(os.Stderr, "apt-cosign: ", log.LstdFlags|log.Lmicroseconds)
 	}
 	return log.New(f, "", log.LstdFlags|log.Lmicroseconds)
 }
@@ -112,7 +107,7 @@ func OpenDebugLog() *log.Logger {
 	if env == "" {
 		return log.New(io.Discard, "", 0)
 	}
-	return createLogger(env, DefaultDebugLogPath)
+	return createLogger(env, filepath.Join(config.DefaultCacheDir, "debug.log"))
 }
 
 // Method runs the apt acquire-method protocol loop over the given streams.

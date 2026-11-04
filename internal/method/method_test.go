@@ -674,22 +674,14 @@ func TestOpenSafeLogFile(t *testing.T) {
 
 func TestOpenDebugLog(t *testing.T) {
 	// Default: disabled, writes nothing to disk.
-	origEnv := os.Getenv("APT_SIGSTORE_DEBUG")
-	os.Unsetenv("APT_SIGSTORE_DEBUG")
-	defer func() {
-		if origEnv != "" {
-			os.Setenv("APT_SIGSTORE_DEBUG", origEnv)
-		} else {
-			os.Unsetenv("APT_SIGSTORE_DEBUG")
-		}
-	}()
+	t.Setenv("APT_SIGSTORE_DEBUG", "")
 
 	logger := OpenDebugLog()
 	logger.Println("this should be discarded")
 
 	// Enabled via environment variable.
 	logFile := filepath.Join(t.TempDir(), "env-debug.log")
-	os.Setenv("APT_SIGSTORE_DEBUG", logFile)
+	t.Setenv("APT_SIGSTORE_DEBUG", logFile)
 	logger = OpenDebugLog()
 	logger.Println("hello from env logger")
 
@@ -729,5 +721,13 @@ func TestHandleConfiguration_DebugLogging(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "debug logging enabled") {
 		t.Fatalf("expected debug log output, got: %q", string(data))
+	}
+}
+
+func TestCreateLogger_FallbackOnOpenError(t *testing.T) {
+	// Relative path causes openSafeLogFile to fail, falling back to stderr.
+	logger := createLogger("relative/path.log", "")
+	if logger == nil {
+		t.Fatal("expected fallback logger, got nil")
 	}
 }
