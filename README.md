@@ -81,6 +81,11 @@ fallback - `sources.list` already had to explicitly name that URL for the
 request to happen at all, so it's already your own trust anchor, the same
 reasoning `Owner`/`Name` derivation (below) relies on. A non-GitHub-hosted
 source has no URL to derive an identity from, so it still fails closed.
+Note the trust boundary: zero-configuration accepts signatures from any
+workflow in that repository. If a repository runs multiple workflows
+with OIDC signing permissions (`id-token: write`), e.g. test or triage runs,
+pinning `Pipeline` (and optionally `Ref`) in a configured policy is
+recommended to restrict signing authority strictly to release workflows.
 
 To narrow that default (pin a specific workflow, a specific ref, a
 non-GitHub identity, or trust more than one repo with different rules),
@@ -103,9 +108,13 @@ matched exactly. In a `Repo` block:
   Fulcio certificate's owner/repo is still checked exactly, just against a
   value read from the request instead of duplicated in apt.conf.
 - `Pipeline`/`Ref` are independently optional too, wildcarding the workflow
-  filename / git ref when left unset - `Owner`+`Name` alone (any workflow
-  in that repo) is a complete, valid policy on its own, on top of the
-  Rekor-log and signature checks every bundle already gets regardless.
+  filename / git ref via regex (`.+`) when left unset. Under zero-configuration
+  (or when `Pipeline` and `Ref` are omitted), any workflow in that repository
+  that receives GitHub Actions OIDC signing permissions (`id-token: write`)
+  can satisfy the identity check. In repositories with multiple workflows (such
+  as test workflows or PR triage runs), explicitly pinning `Pipeline`
+  (e.g. `release.yml`) and `Ref` (e.g. `refs/heads/main` or tags) is
+  recommended to restrict signing authority strictly to release workflows.
 
 To trust more than one identity at once (e.g. two different repos signed by
 two different workflows), use named, URL-prefix-scoped blocks instead of
@@ -132,8 +141,7 @@ matches.
 method IPC protocol only forwards the `Acquire::*` apt.conf tree to a
 method via `601 Configuration` - custom per-stanza fields aren't part of
 that today. If apt ever starts forwarding them, apt-cosign-method could
-read policy straight from the matching stanza instead; tracked in
-[#9](https://github.com/non7top/apt-cosign/issues/9).)
+read policy straight from the matching stanza instead.)
 
 Then point a source at the `sigstore+https` scheme instead of `https`, with
 `[trusted=yes]` - apt's own GPG check has nothing to check here (there's no

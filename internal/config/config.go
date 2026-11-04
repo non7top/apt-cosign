@@ -48,12 +48,11 @@ type RepoIdentity struct {
 	Owner string
 	Name  string
 	// Pipeline is optional: if empty, any workflow filename in Owner/Name
-	// matches (the owner/repo identity check -- pinned or derived from the
-	// URL -- plus the existing Rekor transparency-log and signature
-	// validity checks are the actual security boundary; Pipeline/Ref just
-	// narrow it further for anyone who wants that).
+	// matches via regex (".+"). If a repository runs multiple workflows with
+	// OIDC signing permissions, operators should pin Pipeline (and Ref)
+	// so only the designated release workflow can sign packages.
 	Pipeline string
-	Ref      string // optional; if empty, any ref is accepted (regex match)
+	Ref      string // optional; if empty, any git ref is accepted via regex (".+")
 }
 
 // Identity resolves the Repo block into the (issuer, exact SAN, SAN regexp)
