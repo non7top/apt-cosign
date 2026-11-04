@@ -2,7 +2,9 @@ package verify
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"log"
 	"strings"
 	"testing"
 
@@ -200,7 +202,7 @@ func TestLoadTrustedRoot_RetrySuccess(t *testing.T) {
 		return &fakeMaterial{}, nil
 	}
 
-	tr, err := LoadTrustedRoot(t.TempDir())
+	tr, err := LoadTrustedRoot(context.Background(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("LoadTrustedRoot: %v", err)
 	}
@@ -227,7 +229,10 @@ func TestLoadTrustedRoot_CacheFallback(t *testing.T) {
 		return nil, fmt.Errorf("504 Gateway Timeout")
 	}
 
-	tr, err := LoadTrustedRoot(t.TempDir())
+	var logBuf bytes.Buffer
+	logger := log.New(&logBuf, "", 0)
+
+	tr, err := LoadTrustedRoot(context.Background(), t.TempDir(), logger)
 	if err != nil {
 		t.Fatalf("LoadTrustedRoot: %v", err)
 	}
@@ -239,6 +244,29 @@ func TestLoadTrustedRoot_CacheFallback(t *testing.T) {
 	}
 	if cacheCalls != 1 {
 		t.Fatalf("expected 1 cache fallback call, got %d", cacheCalls)
+	}
+	if !strings.Contains(logBuf.String(), "falling back to cached trusted root") {
+		t.Fatalf("expected fallback warning in log, got: %q", logBuf.String())
+	}
+}
+
+func TestLoadTrustedRoot_ContextCancelled(t *testing.T) {
+	orig := fetchTrustedRoot
+	defer func() { fetchTrustedRoot = orig }()
+
+	fetchTrustedRoot = func(opts *tuf.Options) (root.TrustedMaterial, error) {
+		return nil, fmt.Errorf("timeout")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := LoadTrustedRoot(ctx, t.TempDir(), nil)
+	if err == nil {
+		t.Fatal("expected error on cancelled context")
+	}
+	if !strings.Contains(err.Error(), "context cancelled") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -253,7 +281,7 @@ func TestLoadTrustedRoot_AllFail(t *testing.T) {
 		return nil, fmt.Errorf("connection refused")
 	}
 
-	_, err := LoadTrustedRoot(t.TempDir())
+	_, err := LoadTrustedRoot(context.Background(), t.TempDir(), nil)
 	if err == nil {
 		t.Fatal("expected error when both refresh and cache fail")
 	}

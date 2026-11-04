@@ -126,7 +126,7 @@ type Method struct {
 	// loadTrustedRoot and verifyBundle are swappable seams for testing the
 	// protocol/orchestration logic without live network access or real
 	// Fulcio-issued certificates; they default to the real implementations.
-	loadTrustedRoot func(cacheDir string) (root.TrustedMaterial, error)
+	loadTrustedRoot func(ctx context.Context, cacheDir string, logger *log.Logger) (root.TrustedMaterial, error)
 	verifyBundle    func(tm root.TrustedMaterial, bundleJSON []byte, artifact io.Reader, pol verify.IdentityPolicy) (*verify.Result, error)
 }
 
@@ -264,7 +264,7 @@ func (m *Method) acquire(ctx context.Context, uri, filename string) error {
 
 	if m.trustedMaterial == nil {
 		m.logMessage(uri, "loading sigstore trusted root")
-		tm, err := m.loadTrustedRoot(m.policy.CacheDir)
+		tm, err := m.loadTrustedRoot(ctx, m.policy.CacheDir, m.logger)
 		if err != nil {
 			return fmt.Errorf("loading sigstore trusted root: %w", err)
 		}

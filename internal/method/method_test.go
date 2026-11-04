@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +29,7 @@ func runMethod(t *testing.T, input string, verifyResult func(bundleJSON []byte) 
 	t.Helper()
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	if verifyResult != nil {
@@ -320,7 +321,7 @@ func TestAcquire_MultipleSourcesDispatchByURL(t *testing.T) {
 
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	var sawSANs []string
@@ -391,7 +392,7 @@ func TestAcquire_ZeroConfig_GitHubHost_Succeeds(t *testing.T) {
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
 	m.dl.Client = client
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	var sawIssuer, sawSAN string
@@ -516,7 +517,7 @@ func TestAcquire_StreamArtifact(t *testing.T) {
 
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	m.verifyBundle = func(_ root.TrustedMaterial, _ []byte, artifact io.Reader, _ verify.IdentityPolicy) (*verify.Result, error) {
@@ -605,7 +606,7 @@ func TestAcquire_StreamArtifact_MultipleBundlesRewound(t *testing.T) {
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
 	m.dl.Client = client
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	m.verifyBundle = func(_ root.TrustedMaterial, _ []byte, artifact io.Reader, _ verify.IdentityPolicy) (*verify.Result, error) {
@@ -707,7 +708,7 @@ func TestHandleConfiguration_DebugLogging(t *testing.T) {
 
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 
