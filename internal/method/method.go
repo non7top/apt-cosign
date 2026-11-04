@@ -32,13 +32,14 @@ import (
 )
 
 const (
-	codeCapabilities  = 100
-	codeLog           = 101
-	codeURIStart      = 200
-	codeURIDone       = 201
-	codeURIFailure    = 400
-	codeURIAcquire    = 600
-	codeConfiguration = 601
+	codeCapabilities   = 100
+	codeLog            = 101
+	codeURIStart       = 200
+	codeURIDone        = 201
+	codeURIFailure     = 400
+	codeGeneralFailure = 401
+	codeURIAcquire     = 600
+	codeConfiguration  = 601
 )
 
 // maxBundleBytes bounds how large a single Sigstore bundle (sidecar file or
@@ -123,11 +124,13 @@ type Method struct {
 
 	trustedMaterial root.TrustedMaterial
 
-	// loadTrustedRoot and verifyBundle are swappable seams for testing the
-	// protocol/orchestration logic without live network access or real
-	// Fulcio-issued certificates; they default to the real implementations.
+	// loadTrustedRoot, verifyBundle, and dropPrivs are swappable seams for
+	// testing the protocol/orchestration logic without live network access,
+	// real Fulcio-issued certificates, or root capabilities.
 	loadTrustedRoot func(ctx context.Context, cacheDir string, logger *log.Logger) (root.TrustedMaterial, error)
 	verifyBundle    func(tm root.TrustedMaterial, bundleJSON []byte, artifact io.Reader, pol verify.IdentityPolicy) (*verify.Result, error)
+	dropPrivs       func(username, cacheDir string) error
+	privsDropped    bool
 }
 
 func New(r io.Reader, w io.Writer, logger *log.Logger) *Method {
@@ -143,6 +146,7 @@ func New(r io.Reader, w io.Writer, logger *log.Logger) *Method {
 		policyErr:       errors.New("no 601 Configuration message received yet"),
 		loadTrustedRoot: verify.LoadTrustedRoot,
 		verifyBundle:    verify.Bundle,
+		dropPrivs:       dropPrivileges,
 	}
 }
 
@@ -165,7 +169,11 @@ func (m *Method) Run(ctx context.Context) error {
 
 		switch msg.Code {
 		case codeConfiguration:
-			m.handleConfiguration(msg)
+			if err := m.handleConfiguration(msg); err != nil {
+				m.logger.Printf("configuration error: %v", err)
+				_ = m.out.WriteMessage(codeGeneralFailure, "General Failure", aptmsg.H("Message", err.Error()))
+				return fmt.Errorf("method: handling configuration: %w", err)
+			}
 		case codeURIAcquire:
 			m.handleAcquire(ctx, msg)
 		default:
@@ -188,7 +196,7 @@ func (m *Method) logMessage(uri, text string) {
 	_ = m.out.WriteMessage(codeLog, "Log", aptmsg.H("URI", uri), aptmsg.H("Message", text))
 }
 
-func (m *Method) handleConfiguration(msg *aptmsg.Message) {
+func (m *Method) handleConfiguration(msg *aptmsg.Message) error {
 	for _, item := range msg.All("Config-Item") {
 		key, value, ok := config.ParseConfigItem(item)
 		if !ok {
@@ -197,11 +205,23 @@ func (m *Method) handleConfiguration(msg *aptmsg.Message) {
 		m.configItems[key] = value
 	}
 
+	if !m.privsDropped {
+		sandboxUser := m.configItems["APT::Sandbox::User"]
+		cacheDir := m.configItems["Acquire::sigstore::CacheDir"]
+		if cacheDir == "" {
+			cacheDir = config.DefaultCacheDir
+		}
+		if err := m.dropPrivs(sandboxUser, cacheDir); err != nil {
+			return fmt.Errorf("dropping privileges: %w", err)
+		}
+		m.privsDropped = true
+	}
+
 	policy, err := config.FromItems(m.configItems)
 	if err != nil {
 		m.policy, m.policyErr = nil, err
 		m.logger.Printf("sigstore policy configuration error: %v", err)
-		return
+		return nil
 	}
 	m.policy, m.policyErr = policy, nil
 
@@ -218,6 +238,7 @@ func (m *Method) handleConfiguration(msg *aptmsg.Message) {
 	if policy.RekorServer != "" {
 		m.logger.Printf("note: Acquire::sigstore::RekorServer=%q is configured but only the public-good Sigstore instance (live TUF trusted root) is currently supported; ignoring", policy.RekorServer)
 	}
+	return nil
 }
 
 func (m *Method) handleAcquire(ctx context.Context, msg *aptmsg.Message) {

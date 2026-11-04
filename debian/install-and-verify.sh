@@ -11,7 +11,7 @@
 # doesn't have that staleness problem.
 set -eu
 
-DEB=$(find /dist -maxdepth 1 -name '*.deb' | head -1)
+DEB=$(find /dist -maxdepth 1 -name '*.deb' | sort -V | tail -1)
 if [ -z "$DEB" ]; then
   echo "FAIL: no .deb found under /dist (mount ./dist:/dist:ro)" >&2
   exit 1
