@@ -2,10 +2,13 @@ package verify
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore-go/pkg/testing/ca"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
 )
 
 const (
@@ -177,5 +180,84 @@ func TestVerifyEntity_MinLogIndexRejected(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "below configured minimum") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+type fakeMaterial struct {
+	root.BaseTrustedMaterial
+}
+
+func TestLoadTrustedRoot_RetrySuccess(t *testing.T) {
+	orig := fetchTrustedRoot
+	defer func() { fetchTrustedRoot = orig }()
+
+	attempts := 0
+	fetchTrustedRoot = func(opts *tuf.Options) (root.TrustedMaterial, error) {
+		attempts++
+		if attempts < 2 {
+			return nil, fmt.Errorf("transient network timeout")
+		}
+		return &fakeMaterial{}, nil
+	}
+
+	tr, err := LoadTrustedRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadTrustedRoot: %v", err)
+	}
+	if tr == nil {
+		t.Fatal("expected trusted material, got nil")
+	}
+	if attempts != 2 {
+		t.Fatalf("expected 2 attempts, got %d", attempts)
+	}
+}
+
+func TestLoadTrustedRoot_CacheFallback(t *testing.T) {
+	orig := fetchTrustedRoot
+	defer func() { fetchTrustedRoot = orig }()
+
+	refreshCalls := 0
+	cacheCalls := 0
+	fetchTrustedRoot = func(opts *tuf.Options) (root.TrustedMaterial, error) {
+		if opts.ForceCache {
+			cacheCalls++
+			return &fakeMaterial{}, nil
+		}
+		refreshCalls++
+		return nil, fmt.Errorf("504 Gateway Timeout")
+	}
+
+	tr, err := LoadTrustedRoot(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadTrustedRoot: %v", err)
+	}
+	if tr == nil {
+		t.Fatal("expected trusted material from cache, got nil")
+	}
+	if refreshCalls != 3 {
+		t.Fatalf("expected 3 refresh retries, got %d", refreshCalls)
+	}
+	if cacheCalls != 1 {
+		t.Fatalf("expected 1 cache fallback call, got %d", cacheCalls)
+	}
+}
+
+func TestLoadTrustedRoot_AllFail(t *testing.T) {
+	orig := fetchTrustedRoot
+	defer func() { fetchTrustedRoot = orig }()
+
+	fetchTrustedRoot = func(opts *tuf.Options) (root.TrustedMaterial, error) {
+		if opts.ForceCache {
+			return nil, fmt.Errorf("no cache on disk")
+		}
+		return nil, fmt.Errorf("connection refused")
+	}
+
+	_, err := LoadTrustedRoot(t.TempDir())
+	if err == nil {
+		t.Fatal("expected error when both refresh and cache fail")
+	}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("expected original refresh error, got: %v", err)
 	}
 }
