@@ -8,21 +8,25 @@
 // issued for a run of Owner/Name's Pipeline workflow, via GitHub Actions'
 // fixed OIDC issuer. Owner/Name (together) and Pipeline/Ref are each
 // optional -- see the commented-out fields below.
+//
+// Recommended practice: in repositories with multiple workflows (e.g. CI test
+// runs or triage workflows granted id-token permissions), explicitly pin both
+// Pipeline ("release.yml") and Ref ("refs/heads/main" or tags) to restrict
+// signing trust strictly to authorized release workflows.
 Acquire::sigstore::Enforce::Repo {
     Owner "your-org";
     Name "your-repo";
     Pipeline "release.yml";
-    // Ref "refs/heads/main"; // optional: pin to one ref for an exact (non-regexp) match
+    // Ref "refs/heads/main"; // recommended to pin: exact ref (or omit to match any ref via regex)
 
     // Owner/Name may both be left unset instead: they're then derived from
     // each request's own URL (github.com/raw.githubusercontent.com), so
     // this same block covers every GitHub-hosted source using the same
     // Pipeline convention, with no per-repo config.
 
-    // Pipeline may also be left unset, wildcarding the workflow filename --
-    // Owner+Name alone (any workflow in that repo) is a complete policy on
-    // its own, on top of the Rekor-log and signature checks every bundle
-    // already gets regardless.
+    // Leaving Pipeline or Ref unset matches any workflow filename or ref via
+    // regex (".+"). If a repo contains other workflows with OIDC signing
+    // permissions, pin Pipeline and Ref explicitly above.
 };
 
 // Style 2: a raw OIDC issuer + certificate identity, matched exactly.
@@ -53,3 +57,5 @@ Acquire::sigstore::Enforce::Repo {
 // Acquire::sigstore::BundleExtension ".sigstore"; // sidecar file suffix
 // Acquire::sigstore::GitHubToken "..."; // for the GitHub Attestations API fallback
 // Acquire::sigstore::CacheDir "/var/lib/apt-cosign"; // TUF trusted-root cache
+// Acquire::sigstore::Debug "true"; // enable diagnostic debug logging
+// Acquire::sigstore::DebugLog "/var/lib/apt-cosign/debug.log"; // or "stderr"

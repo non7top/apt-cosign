@@ -1,20 +1,20 @@
 # apt-cosign
 
 A native apt acquire method (`sigstore+https://`) that verifies a Sigstore
-bundle — a Rekor transparency-log entry and a Fulcio-issued OIDC certificate
-identity — before handing a fetched file back to apt. Includes
+bundle - a Rekor transparency-log entry and a Fulcio-issued OIDC certificate
+identity - before handing a fetched file back to apt. Includes
 `apt-cosign-sign`, the repo-maintainer counterpart that produces those
 bundles.
 
 ## What gets verified
 
-Every file apt-cosign-method fetches (not just the top-level index —
+Every file apt-cosign-method fetches (not just the top-level index -
 `InRelease`, `Packages`, and each `.deb` are each checked independently)
 must have all of:
 
 - A **valid signature** over its exact bytes.
 - A **valid Rekor transparency-log entry** for that signature, checked
-  against the live, TUF-fetched public-good Sigstore trusted root — so
+  against the live, TUF-fetched public-good Sigstore trusted root - so
   it's publicly, tamper-evidently logged, not just cryptographically
   self-consistent.
 - A **certificate identity matching your policy**: either an exact
@@ -22,7 +22,7 @@ must have all of:
   shorthand) a GitHub Actions-issued certificate whose owner/repo (pinned,
   or derived from the request's own URL) and, optionally, workflow
   filename/ref all match. For a GitHub-hosted source, this is also the
-  *zero-configuration default* — nothing pinned at all still derives
+  *zero-configuration default* - nothing pinned at all still derives
   owner/repo from the URL and checks it.
 - Optionally, a **minimum Rekor log index** (`rekorLogIndex`), rejecting
   anything logged before a given point (e.g. to invalidate everything
@@ -37,7 +37,7 @@ not a malware scanner.
 
 Bootstrap problem: verifying a `sigstore+https://` source needs
 apt-cosign-method already installed, so the very first download of
-apt-cosign itself can't go through apt-cosign-method — there's nothing
+apt-cosign itself can't go through apt-cosign-method - there's nothing
 installed yet to do the verifying. Grab it from a
 [release](../../releases) instead and verify it directly with the
 [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) CLI
@@ -68,7 +68,7 @@ directly in `/etc/apt/apt.conf.d/`: apt's conf.d file-name validator rejects
 any dot in the name, so a `*.example` file there gets silently skipped with
 a notice on every apt run). From here on, apt-cosign-method itself can
 verify future updates through a
-`sigstore+https` source (see below) — this manual cosign step is only needed
+`sigstore+https` source (see below) - this manual cosign step is only needed
 once, for the first install.
 
 ## Configure a client
@@ -77,10 +77,15 @@ For a GitHub-hosted source (`github.com`/`raw.githubusercontent.com`), no
 configuration is needed at all: with no policy configured, the method
 derives the owner/repo from the request's own URL and trusts that repo's
 own GitHub Actions CI (any workflow, any ref). This isn't a weaker
-fallback — `sources.list` already had to explicitly name that URL for the
+fallback - `sources.list` already had to explicitly name that URL for the
 request to happen at all, so it's already your own trust anchor, the same
 reasoning `Owner`/`Name` derivation (below) relies on. A non-GitHub-hosted
 source has no URL to derive an identity from, so it still fails closed.
+Note the trust boundary: zero-configuration accepts signatures from any
+workflow in that repository. If a repository runs multiple workflows
+with OIDC signing permissions (`id-token: write`), e.g. test or triage runs,
+pinning `Pipeline` (and optionally `Ref`) in a configured policy is
+recommended to restrict signing authority strictly to release workflows.
 
 To narrow that default (pin a specific workflow, a specific ref, a
 non-GitHub identity, or trust more than one repo with different rules),
@@ -90,22 +95,26 @@ copy the example policy and edit it:
 sudo cp /usr/share/doc/apt-cosign/examples/99sigstore-policy.example /etc/apt/apt.conf.d/99sigstore-policy
 ```
 
-Pick one enforcement style inside — a GitHub Actions workflow identity
+Pick one enforcement style inside - a GitHub Actions workflow identity
 (`Enforce::Repo { Owner; Name; Pipeline; }`), or a raw
 `Enforce::Fields { certificate-oidc-issuer; certificate-identity; }` pair
 matched exactly. In a `Repo` block:
 
 - `Owner`/`Name` can be omitted (both, together) to derive them from each
-  request's own URL instead of pinning them — one policy then covers every
+  request's own URL instead of pinning them - one policy then covers every
   GitHub-hosted source using the same `Pipeline` convention, with no
   per-repo config. This doesn't weaken anything: the URL comes from your
   own `sources.list`, which is already the trust anchor here, and the
   Fulcio certificate's owner/repo is still checked exactly, just against a
   value read from the request instead of duplicated in apt.conf.
 - `Pipeline`/`Ref` are independently optional too, wildcarding the workflow
-  filename / git ref when left unset — `Owner`+`Name` alone (any workflow
-  in that repo) is a complete, valid policy on its own, on top of the
-  Rekor-log and signature checks every bundle already gets regardless.
+  filename / git ref via regex (`.+`) when left unset. Under zero-configuration
+  (or when `Pipeline` and `Ref` are omitted), any workflow in that repository
+  that receives GitHub Actions OIDC signing permissions (`id-token: write`)
+  can satisfy the identity check. In repositories with multiple workflows (such
+  as test workflows or PR triage runs), explicitly pinning `Pipeline`
+  (e.g. `release.yml`) and `Ref` (e.g. `refs/heads/main` or tags) is
+  recommended to restrict signing authority strictly to release workflows.
 
 To trust more than one identity at once (e.g. two different repos signed by
 two different workflows), use named, URL-prefix-scoped blocks instead of
@@ -130,13 +139,12 @@ matches.
 (Not yet possible: putting this policy directly in the source's own
 `.sources`/`sources.list` stanza instead of a separate apt.conf block. Apt's
 method IPC protocol only forwards the `Acquire::*` apt.conf tree to a
-method via `601 Configuration` — custom per-stanza fields aren't part of
+method via `601 Configuration` - custom per-stanza fields aren't part of
 that today. If apt ever starts forwarding them, apt-cosign-method could
-read policy straight from the matching stanza instead; tracked in
-[#9](https://github.com/non7top/apt-cosign/issues/9).)
+read policy straight from the matching stanza instead.)
 
 Then point a source at the `sigstore+https` scheme instead of `https`, with
-`[trusted=yes]` — apt's own GPG check has nothing to check here (there's no
+`[trusted=yes]` - apt's own GPG check has nothing to check here (there's no
 `Release.gpg`, no inline-signed `InRelease`; the sigstore bundle *is* the
 trust mechanism), so tell apt to skip it and rely on the method instead:
 
@@ -144,14 +152,23 @@ trust mechanism), so tell apt to skip it and rely on the method instead:
 deb [trusted=yes] sigstore+https://raw.githubusercontent.com/non7top/apt-cosign/refs/heads/apt-repo/ ./
 ```
 
-That's this project's own live demo repo (see below) — every apt-cosign
+That's this project's own live demo repo (see below) - every apt-cosign
 release republishes it, so you can add this source today and
 `apt-get install apt-cosign` through it.
+
+### Debugging
+
+Debug logging is disabled by default (previously written unconditionally to `/tmp/apt-sigstore-debug.log`). To enable diagnostic logging:
+
+- In apt configuration: set `Acquire::sigstore::Debug "true";`. By default, logs are written to `/var/lib/apt-cosign/debug.log` (or `<CacheDir>/debug.log`). To write to stderr instead (which apt displays), set `Acquire::sigstore::DebugLog "stderr";`.
+- Via environment variable: set `APT_SIGSTORE_DEBUG=true` (logs to default cache directory), `APT_SIGSTORE_DEBUG=stderr`, or specify an absolute file path.
+
+Log files are opened with `O_NOFOLLOW` and verified to be owned by the current process user or root. If opening the log file fails, the method falls back to stderr with a warning.
 
 ## Sign a repo
 
 `apt-cosign-sign` keylessly signs a file and writes the sidecar bundle
-`apt-cosign-method` fetches and verifies, next to it as `FILE.sigstore` — the
+`apt-cosign-method` fetches and verifies, next to it as `FILE.sigstore` - the
 same convention as the classic `Release`/`Release.gpg` pairing:
 
 ```sh
@@ -164,23 +181,23 @@ or an interactive OAuth login (`-device` for a headless machine).
 
 ## Hosting a repo on raw.githubusercontent.com
 
-apt-cosign hosts itself this way — `debian/build-apt-repo.sh` and
+apt-cosign hosts itself this way - `debian/build-apt-repo.sh` and
 `debian/sign-apt-repo.sh` (wired up as `make apt-repo-stage` /
 `make apt-repo-sign`, and as the `publish-apt-repo` job in
 [`release.yml`](.github/workflows/release.yml)) are the real, working
 version of these steps, not just documentation:
 
-1. Stage a flat repo (no `dists/` hierarchy — just `deb URL/ ./`): a
+1. Stage a flat repo (no `dists/` hierarchy - just `deb URL/ ./`): a
    `Packages` index from `dpkg-scanpackages`, an `InRelease` with a `SHA256:`
    hash section over `Packages` and no PGP signature, and the `.deb`(s)
    themselves, all in one directory.
 2. In a GitHub Actions workflow with `permissions: id-token: write`, run
    `apt-cosign-sign` on **all three** of `InRelease`, `Packages`, and each
-   `.deb` — apt-cosign-method verifies every file it's asked to fetch
+   `.deb` - apt-cosign-method verifies every file it's asked to fetch
    independently, not just the top-level index, so each needs its own
    `.sigstore` bundle.
 3. Publish that directory as the sole commit of a dedicated branch (a
-   `gh-pages`-style force-push, regenerated whole on every release — see
+   `gh-pages`-style force-push, regenerated whole on every release - see
    the `publish-apt-repo` job) so `raw.githubusercontent.com` serves it.
 4. Point clients at
    `sigstore+https://raw.githubusercontent.com/OWNER/REPO/refs/heads/BRANCH/InRelease`
@@ -193,7 +210,7 @@ version of these steps, not just documentation:
 
 ## Building it yourself
 
-Everything builds in a pinned, non-root Docker container — no local Go
+Everything builds in a pinned, non-root Docker container - no local Go
 install needed:
 
 ```sh
@@ -211,7 +228,7 @@ directly.
 ## Prior art
 
 [apt-verify / apt-sigstore](https://blog.josefsson.org/tag/apt-verify/)
-explored similar ground back in 2023 — using Rekor to bring transparency
+explored similar ground back in 2023 - using Rekor to bring transparency
 to apt package verification. Its base mode checks that a signature was
 logged without checking who signed it; an add-on plugin pins a static
 public key per distribution for a stronger check. Both integrate by
@@ -224,19 +241,19 @@ instead of a stored key, and ships as its own acquire method
 ## Known limitations
 
 There's no `Release.gpg` or inline-signed `InRelease` for apt to check
-itself, so sources need `[trusted=yes]` — and apt labels that combination
+itself, so sources need `[trusted=yes]` - and apt labels that combination
 `Ign` in `apt-get update` output. That's apt's own way of saying "I didn't
 run gpgv on this," not a sign of failure; the method still verifies every
 file independently before apt ever sees it. On a slower fetch (compressed
 index probing, the Sigstore round trips themselves) apt's interactive
 progress display can also print the same status lines several times.
 Both are cosmetic quirks of how apt renders unsigned-but-trusted sources,
-not bugs in verification — `apt-get -q update` avoids the second one.
+not bugs in verification - `apt-get -q update` avoids the second one.
 The same distrust shows up in `apt list`/`apt-cache policy` too: apt just
 discards `InRelease`'s Origin/Label/Suite/Codename/Version fields for a
 `[trusted=yes]` source rather than displaying what's actually there, so
 `apt list` shows the package as `apt-cosign/unknown` instead of
-`apt-cosign/stable`. Confirmed this isn't sigstore-specific either — a
+`apt-cosign/stable`. Confirmed this isn't sigstore-specific either - a
 plain, unsigned `[trusted=yes]` HTTP source with no custom method at all
 gets the exact same treatment.
 
@@ -244,7 +261,7 @@ There's no clean fix available today, either: apt's method protocol gives
 a method no way to hand back a trust verdict apt's own status line would
 reflect, and the only real override (`gpgvcommand`) is a single global
 setting, not something scopable to one source. This isn't just unaddressed
-upstream — [a request to let apt verify against a transparency
+upstream - [a request to let apt verify against a transparency
 log](https://www.mail-archive.com/debian-bugs-dist@lists.debian.org/msg1951430.html)
 was turned down ("I'm strongly opposed to add support for these
 off-the-shelve solutions. We need end-to-end control of all aspects of

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +29,7 @@ func runMethod(t *testing.T, input string, verifyResult func(bundleJSON []byte) 
 	t.Helper()
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	if verifyResult != nil {
@@ -320,7 +321,7 @@ func TestAcquire_MultipleSourcesDispatchByURL(t *testing.T) {
 
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	var sawSANs []string
@@ -391,7 +392,7 @@ func TestAcquire_ZeroConfig_GitHubHost_Succeeds(t *testing.T) {
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
 	m.dl.Client = client
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	var sawIssuer, sawSAN string
@@ -516,7 +517,7 @@ func TestAcquire_StreamArtifact(t *testing.T) {
 
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	m.verifyBundle = func(_ root.TrustedMaterial, _ []byte, artifact io.Reader, _ verify.IdentityPolicy) (*verify.Result, error) {
@@ -605,7 +606,7 @@ func TestAcquire_StreamArtifact_MultipleBundlesRewound(t *testing.T) {
 	var out bytes.Buffer
 	m := New(strings.NewReader(input), &out, nil)
 	m.dl.Client = client
-	m.loadTrustedRoot = func(string) (root.TrustedMaterial, error) {
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
 		return &fakeTrustedMaterial{}, nil
 	}
 	m.verifyBundle = func(_ root.TrustedMaterial, _ []byte, artifact io.Reader, _ verify.IdentityPolicy) (*verify.Result, error) {
@@ -636,5 +637,98 @@ func TestAcquire_StreamArtifact_MultipleBundlesRewound(t *testing.T) {
 		if payload != "streaming artifact to verify" {
 			t.Fatalf("call %d read payload = %q, want %q (was file properly rewound?)", i+1, payload, "streaming artifact to verify")
 		}
+	}
+}
+
+func TestOpenSafeLogFile(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "sub", "test.log")
+
+	f, err := openSafeLogFile(logPath)
+	if err != nil {
+		t.Fatalf("openSafeLogFile: %v", err)
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("expected 0600 permissions, got %04o", perm)
+	}
+
+	// Relative path rejected.
+	if _, err := openSafeLogFile("relative.log"); err == nil {
+		t.Fatal("expected error for relative path")
+	}
+
+	// Symlink target rejected with O_NOFOLLOW.
+	linkPath := filepath.Join(dir, "symlink.log")
+	if err := os.Symlink(logPath, linkPath); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+	if _, err := openSafeLogFile(linkPath); err == nil {
+		t.Fatal("expected error opening symlink with O_NOFOLLOW")
+	}
+}
+
+func TestOpenDebugLog(t *testing.T) {
+	// Default: disabled, writes nothing to disk.
+	t.Setenv("APT_SIGSTORE_DEBUG", "")
+
+	logger := OpenDebugLog()
+	logger.Println("this should be discarded")
+
+	// Enabled via environment variable.
+	logFile := filepath.Join(t.TempDir(), "env-debug.log")
+	t.Setenv("APT_SIGSTORE_DEBUG", logFile)
+	logger = OpenDebugLog()
+	logger.Println("hello from env logger")
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("reading log: %v", err)
+	}
+	if !strings.Contains(string(data), "hello from env logger") {
+		t.Fatalf("log does not contain expected line: %q", string(data))
+	}
+}
+
+func TestHandleConfiguration_DebugLogging(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "config-debug.log")
+
+	input := configMessage(
+		"Acquire::sigstore::Enforce::Repo::Owner=octo-org",
+		"Acquire::sigstore::Enforce::Repo::Name=widgets",
+		"Acquire::sigstore::Debug=true",
+		"Acquire::sigstore::DebugLog="+logFile,
+	)
+
+	var out bytes.Buffer
+	m := New(strings.NewReader(input), &out, nil)
+	m.loadTrustedRoot = func(context.Context, string, *log.Logger) (root.TrustedMaterial, error) {
+		return &fakeTrustedMaterial{}, nil
+	}
+
+	if err := m.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("reading debug log: %v", err)
+	}
+	if !strings.Contains(string(data), "debug logging enabled") {
+		t.Fatalf("expected debug log output, got: %q", string(data))
+	}
+}
+
+func TestCreateLogger_FallbackOnOpenError(t *testing.T) {
+	// Relative path causes openSafeLogFile to fail, falling back to stderr.
+	logger := createLogger("relative/path.log", "")
+	if logger == nil {
+		t.Fatal("expected fallback logger, got nil")
 	}
 }

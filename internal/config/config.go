@@ -20,6 +20,8 @@ const (
 	keyBundleExtension = prefix + "BundleExtension"
 	keyGitHubToken     = prefix + "GitHubToken"
 	keyCacheDir        = prefix + "CacheDir"
+	keyDebug           = prefix + "Debug"
+	keyDebugLog        = prefix + "DebugLog"
 
 	keyDefaultEnforceBase = prefix + "Enforce"
 	keySourcesPrefix      = prefix + "Sources::"
@@ -46,12 +48,11 @@ type RepoIdentity struct {
 	Owner string
 	Name  string
 	// Pipeline is optional: if empty, any workflow filename in Owner/Name
-	// matches (the owner/repo identity check -- pinned or derived from the
-	// URL -- plus the existing Rekor transparency-log and signature
-	// validity checks are the actual security boundary; Pipeline/Ref just
-	// narrow it further for anyone who wants that).
+	// matches via regex (".+"). If a repository runs multiple workflows with
+	// OIDC signing permissions, operators should pin Pipeline (and Ref)
+	// so only the designated release workflow can sign packages.
 	Pipeline string
-	Ref      string // optional; if empty, any ref is accepted (regex match)
+	Ref      string // optional; if empty, any git ref is accepted via regex (".+")
 }
 
 // Identity resolves the Repo block into the (issuer, exact SAN, SAN regexp)
@@ -123,6 +124,8 @@ type Policy struct {
 	BundleExtension string
 	CacheDir        string
 	GitHubToken     string
+	Debug           bool
+	DebugLog        string
 
 	// Enforce is the default/fallback policy, from the flat, unscoped
 	// Acquire::sigstore::Enforce::* block. HasDefault is false if that
@@ -209,6 +212,14 @@ func FromItems(items map[string]string) (*Policy, error) {
 	if v, ok := items[keyCacheDir]; ok && v != "" {
 		p.CacheDir = v
 	}
+	if v, ok := items[keyDebug]; ok {
+		p.Debug = IsTrue(v)
+	}
+	if v, ok := items[keyDebugLog]; ok && v != "" {
+		p.DebugLog = v
+	} else if v, ok := items[prefix+"Debug::Log"]; ok && v != "" {
+		p.DebugLog = v
+	}
 
 	defaultEnforce, hasDefault, err := parseEnforce(items, keyDefaultEnforceBase)
 	if err != nil {
@@ -227,6 +238,13 @@ func FromItems(items map[string]string) (*Policy, error) {
 	// per-request for anything that isn't a GitHub-hosted URL it can derive
 	// an identity from.
 	return p, nil
+}
+
+// IsTrue reports whether a string represents a boolean true value
+// ("true", "1", "yes", "on", case-insensitively).
+func IsTrue(v string) bool {
+	v = strings.ToLower(strings.TrimSpace(v))
+	return v == "true" || v == "1" || v == "yes" || v == "on"
 }
 
 // parseEnforce reads one Enforce block (rekorLogIndex + either Repo or raw

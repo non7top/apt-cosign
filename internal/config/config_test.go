@@ -447,3 +447,22 @@ func TestFromItems_Sources_LongestPrefixOrder(t *testing.T) {
 		t.Fatalf("expected source broad, got %q", source)
 	}
 }
+
+func TestFromItems_DebugConfig(t *testing.T) {
+	items := map[string]string{
+		"Acquire::sigstore::Enforce::Repo::Owner": "octo-org",
+		"Acquire::sigstore::Enforce::Repo::Name":  "widgets",
+		"Acquire::sigstore::Debug":                "true",
+		"Acquire::sigstore::DebugLog":             "/var/log/custom.log",
+	}
+	p, err := FromItems(items)
+	if err != nil {
+		t.Fatalf("FromItems: %v", err)
+	}
+	if !p.Debug {
+		t.Fatal("expected Debug to be true")
+	}
+	if p.DebugLog != "/var/log/custom.log" {
+		t.Fatalf("expected DebugLog /var/log/custom.log, got %q", p.DebugLog)
+	}
+}

@@ -7,9 +7,12 @@
 package verify
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"time"
 
 	sigbundle "github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
@@ -39,20 +42,63 @@ type Result struct {
 	Detail   *sigverify.VerificationResult
 }
 
+// fetchTrustedRoot is a swappable seam for FetchTrustedRootWithOptions.
+var fetchTrustedRoot = func(opts *tuf.Options) (root.TrustedMaterial, error) {
+	return root.FetchTrustedRootWithOptions(opts)
+}
+
 // LoadTrustedRoot fetches the current Sigstore trusted root (Fulcio CA,
 // Rekor/CT log keys) from the public-good TUF repository, caching it under
-// cacheDir. The cache is trusted for a day before being refreshed, so
-// routine apt runs don't hit the TUF CDN every time.
-func LoadTrustedRoot(cacheDir string) (root.TrustedMaterial, error) {
+// cacheDir. The cache is trusted for a day before being refreshed.
+// If the TUF CDN is unreachable or returns a transient error during refresh,
+// the fetch is retried with backoff respecting ctx; if network refresh
+// fails completely, it falls back to loading the existing cached trusted
+// root via ForceCache and logs a warning.
+func LoadTrustedRoot(ctx context.Context, cacheDir string, logger *log.Logger) (root.TrustedMaterial, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if logger == nil {
+		logger = log.New(io.Discard, "", 0)
+	}
+
 	opts := tuf.DefaultOptions()
 	opts.CachePath = cacheDir
 	opts.CacheValidity = 1
+	opts.Context = ctx
 
-	tr, err := root.FetchTrustedRootWithOptions(opts)
-	if err != nil {
-		return nil, fmt.Errorf("verify: fetching trusted root: %w", err)
+	backoffs := []time.Duration{200 * time.Millisecond, 800 * time.Millisecond}
+	var lastErr error
+	for attempt := 0; attempt <= len(backoffs); attempt++ {
+		tr, err := fetchTrustedRoot(opts)
+		if err == nil {
+			return tr, nil
+		}
+		lastErr = err
+
+		if attempt < len(backoffs) {
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("verify: context cancelled during trusted root refresh: %w", ctx.Err())
+			case <-time.After(backoffs[attempt]):
+			}
+		}
 	}
-	return tr, nil
+
+	// If refresh failed (e.g. TUF CDN unreachable), attempt to load
+	// from existing local cache without refreshing.
+	cachedOpts := tuf.DefaultOptions()
+	cachedOpts.CachePath = cacheDir
+	cachedOpts.ForceCache = true
+	cachedOpts.Context = ctx
+
+	tr, err := fetchTrustedRoot(cachedOpts)
+	if err == nil {
+		logger.Printf("warning: TUF trusted root refresh failed (%v); falling back to cached trusted root", lastErr)
+		return tr, nil
+	}
+
+	return nil, fmt.Errorf("verify: fetching trusted root: %w", lastErr)
 }
 
 // Bundle verifies bundleJSON (a Sigstore bundle, whether from a repo's

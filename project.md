@@ -98,11 +98,11 @@ Acquire::sigstore::Enforce::Fields {
 ### Task 1: Protocol Skeleton & Mock Engine
 * Set up a Go application project loop reading `os.Stdin` via a scanner.
 * Properly handle `100 Capabilities` and echo back proper responses.
-* Log all incoming configurations and acquisition hooks to a temporary file (`/tmp/apt-sigstore-debug.log`) for inspection during runtime testing.
+* Log incoming configurations and acquisition hooks when debugging is enabled (via Acquire::sigstore::Debug or APT_SIGSTORE_DEBUG, defaulting to /var/lib/apt-cosign/debug.log or stderr) using safe open flags.
 
 ### Task 2: Downloader Engine
 * Standardize the mapping of incoming `sigstore+https://` blocks to vanilla standard `net/http` fetching actions.
-* Ensure streaming handling directly into the path defined by APT’s incoming `Filename:` parameter.
+* Ensure streaming handling directly into the path defined by APT's incoming `Filename:` parameter.
 
 ### Task 3: Cosign SDK & Claims Engine Integration
 * Pull in `://github.com/pkg/cosign`.
