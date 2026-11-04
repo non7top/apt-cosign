@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"apt-cosign/internal/aptmsg"
+	"apt-cosign/internal/config"
 	"apt-cosign/internal/verify"
 
 	"github.com/sigstore/sigstore-go/pkg/root"
@@ -730,5 +731,131 @@ func TestCreateLogger_FallbackOnOpenError(t *testing.T) {
 	logger := createLogger("relative/path.log", "")
 	if logger == nil {
 		t.Fatal("expected fallback logger, got nil")
+	}
+}
+
+func TestHandleConfiguration_DropPrivileges_DefaultUser(t *testing.T) {
+	var out bytes.Buffer
+	m := New(strings.NewReader(""), &out, nil)
+	var sawUser, sawCacheDir string
+	m.dropPrivs = func(user, cacheDir string) error {
+		sawUser = user
+		sawCacheDir = cacheDir
+		return nil
+	}
+
+	err := m.handleConfiguration(&aptmsg.Message{
+		Code:        codeConfiguration,
+		Description: "Configuration",
+	})
+	if err != nil {
+		t.Fatalf("handleConfiguration: %v", err)
+	}
+	if sawUser != "" {
+		t.Fatalf("expected empty user (defaulting to _apt), got %q", sawUser)
+	}
+	if sawCacheDir != config.DefaultCacheDir {
+		t.Fatalf("expected DefaultCacheDir %q, got %q", config.DefaultCacheDir, sawCacheDir)
+	}
+}
+
+func TestHandleConfiguration_DropPrivileges_ConfiguredUser(t *testing.T) {
+	var out bytes.Buffer
+	m := New(strings.NewReader(""), &out, nil)
+	var sawUser, sawCacheDir string
+	m.dropPrivs = func(user, cacheDir string) error {
+		sawUser = user
+		sawCacheDir = cacheDir
+		return nil
+	}
+
+	err := m.handleConfiguration(&aptmsg.Message{
+		Code:        codeConfiguration,
+		Description: "Configuration",
+		Headers: []aptmsg.Header{
+			aptmsg.H("Config-Item", "APT::Sandbox::User=sandbox-user"),
+			aptmsg.H("Config-Item", "Acquire::sigstore::CacheDir=/var/cache/custom"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("handleConfiguration: %v", err)
+	}
+	if sawUser != "sandbox-user" {
+		t.Fatalf("expected sandbox-user, got %q", sawUser)
+	}
+	if sawCacheDir != "/var/cache/custom" {
+		t.Fatalf("expected /var/cache/custom, got %q", sawCacheDir)
+	}
+}
+
+func TestHandleConfiguration_DropPrivileges_CalledOnlyOnce(t *testing.T) {
+	var out bytes.Buffer
+	m := New(strings.NewReader(""), &out, nil)
+	calls := 0
+	m.dropPrivs = func(user, cacheDir string) error {
+		calls++
+		return nil
+	}
+
+	msg := &aptmsg.Message{
+		Code:        codeConfiguration,
+		Description: "Configuration",
+	}
+	if err := m.handleConfiguration(msg); err != nil {
+		t.Fatalf("handleConfiguration 1: %v", err)
+	}
+	if err := m.handleConfiguration(msg); err != nil {
+		t.Fatalf("handleConfiguration 2: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected dropPrivs to be called once, got %d", calls)
+	}
+}
+
+func TestHandleConfiguration_DropPrivileges_Failure_Emits401(t *testing.T) {
+	input := "601 Configuration\nConfig-Item: APT::Sandbox::User=invalid-user\n\n"
+	var out bytes.Buffer
+	m := New(strings.NewReader(input), &out, nil)
+	m.dropPrivs = func(user, cacheDir string) error {
+		return fmt.Errorf("user %q not found", user)
+	}
+
+	err := m.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from Run on drop privileges failure")
+	}
+
+	r := aptmsg.NewReader(&out)
+	msg1, err := r.ReadMessage()
+	if err != nil {
+		t.Fatalf("reading message 1: %v", err)
+	}
+	if msg1.Code != codeCapabilities {
+		t.Fatalf("expected capabilities message, got %d", msg1.Code)
+	}
+
+	msg2, err := r.ReadMessage()
+	if err != nil {
+		t.Fatalf("reading message 2: %v", err)
+	}
+	if msg2.Code != codeGeneralFailure {
+		t.Fatalf("expected code %d (General Failure), got %d (%s)", codeGeneralFailure, msg2.Code, msg2.Description)
+	}
+	msgText, _ := msg2.Get("Message")
+	if !strings.Contains(msgText, "user \"invalid-user\" not found") {
+		t.Fatalf("unexpected message in 401: %q", msgText)
+	}
+}
+
+func TestDropPrivileges_NonRoot(t *testing.T) {
+	// When running unprivileged (e.g. standard tests), dropPrivileges is a clean no-op.
+	if err := dropPrivileges("", ""); err != nil {
+		t.Fatalf("dropPrivileges empty user: %v", err)
+	}
+	if err := dropPrivileges("root", ""); err != nil {
+		t.Fatalf("dropPrivileges root: %v", err)
+	}
+	if err := dropPrivileges("someuser", "/tmp/nonexistent"); err != nil {
+		t.Fatalf("dropPrivileges someuser: %v", err)
 	}
 }

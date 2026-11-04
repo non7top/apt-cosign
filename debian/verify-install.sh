@@ -26,5 +26,17 @@ case "$out" in
   *) fail "unexpected capabilities output: $out" ;;
 esac
 
+# Verify that the method drops privileges to _apt when given 601 Configuration as root
+out=$(printf '601 Configuration\nConfig-Item: Acquire::sigstore::Debug=true\n\n' | "$METHOD_BIN" || true)
+case "$out" in
+  "100 Capabilities"*) ;;
+  *) fail "unexpected capabilities output with configuration: $out" ;;
+esac
+
+log_file="$CACHE_DIR/debug.log"
+[ -f "$log_file" ] || fail "debug log was not created at $log_file"
+log_owner=$(stat -c '%U' "$log_file")
+[ "$log_owner" = "_apt" ] || fail "debug log owned by $log_owner, want _apt"
+
 # shellcheck disable=SC1091 # /etc/os-release only exists on the target system, not at lint time
 echo "OK: $(. /etc/os-release && echo "$PRETTY_NAME")"
