@@ -3,7 +3,7 @@ module apt-cosign
 go 1.27.0
 
 require (
-	github.com/sigstore/sigstore v1.11.2
+	github.com/sigstore/sigstore v1.11.3
 	github.com/sigstore/sigstore-go v1.4.0
 	google.golang.org/protobuf v1.36.12
 )
